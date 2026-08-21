@@ -5,13 +5,13 @@
 
 ## Dernière mise à jour
 
-- Date : 2026-08-21
-- Par : session Chargement `.env` dans apps/api (D-15) — `apps/api/src/main.ts` charge désormais explicitement le `.env` racine via `dotenv` avant l'import d'`AppModule` (NestJS ne charge aucun `.env` par défaut, contrairement à Next.js pour `apps/web`). Vérifié en conditions réelles : log de démarrage confirme `injected env (10) from ..\..\.env` ; `POST /plan` authentifié échoue désormais avec un vrai appel réseau Anthropic (`request failed with status 400`) au lieu de `ANTHROPIC_API_KEY is not configured` ; confirmé par appel direct à l'API Anthropic que la cause reste le blocage crédit déjà connu (pas un problème de configuration). `npm run check` intégralement vert. Détail : `DECISIONS.md` D-15.
-- Session précédente : Authentification branchée sur /plan (D-14) — `SessionAuthGuard` protège les trois routes de `PlanController`, 401 sans jeton valide, isolation par compte (`userId:projectId`), `apps/web` découpé en `AuthForm.tsx`/`Chat.tsx`/`page.tsx`. Détail : `DECISIONS.md` D-14.
+- Date : 2026-08-22
+- Par : session Project System (D-16) — `Project`/`ProjectSystem` (`packages/naminto-core`), `LocalProjectSystem` (`packages/project-system`), endpoints `POST/GET /projects`. `PlanController` vérifie désormais une vraie propriété (`ProjectSystem.getProject`) avant tout accès aux trois routes — 404 (pas 403) si le projet n'existe pas ou n'appartient pas à l'utilisateur ; `projectId` obligatoire dans `POST /plan` (l'ancien `"default"` implicite n'existe plus). `apps/web` gagne un écran `ProjectPicker.tsx` (liste + création, sélection auto après création) entre la connexion et le chat ; le projet sélectionné est persisté dans `localStorage` (`naminto_project_id`) et survit à un rechargement. Vérifié en conditions réelles (curl : 401/400/404 sur toutes les combinaisons invalides, 404 confirmé pour le projet d'un autre compte ; navigateur : inscription → picker → création → chat → "← Projets" → second projet → rechargement conserve la sélection → déconnexion efface tout). `npm run check` intégralement vert (35/35 lint+typecheck+test, 19/19 build — un flake ponctuel de `vitest`/`tinypool` sur `agent-orchestrator` observé une fois lors d'une exécution parallèle lourde, non reproductible en isolation, sans lien avec ce chantier). Détail : `DECISIONS.md` D-16.
+- Session précédente : Chargement `.env` dans apps/api (D-15) — voir `DECISIONS.md` D-15.
 
 ## Phase actuelle
 
-**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant intégralement complet, authentification branchée comprise (D-14) et le chargement des clés API dans `apps/api` corrigé (D-15)** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (correction bornée + session sandbox partagée), Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User System branché avec isolation par compte, User Interface de chat protégée par connexion — tout vérifié en conditions réelles. Il ne reste plus qu'un seul point avant une démo `/plan` bout-en-bout complète : du crédit Anthropic réel sur le compte (blocage déjà connu, volontairement non résolu par l'utilisateur pour l'instant — voir « Blocages » ci-dessous).
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est intégralement complet**, et le chantier Project System (D-16, au-delà du MVP D-2) est également terminé : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator, Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User System, authentification branchée avec isolation par compte réelle (D-14/D-16), Project System (projets nommés, propriété vérifiée), User Interface de chat protégée par connexion et scopée à un projet — tout vérifié en conditions réelles. Il ne reste qu'un seul point avant une démo `/plan` bout-en-bout complète : du crédit Anthropic réel sur le compte (blocage déjà connu, volontairement non résolu par l'utilisateur pour l'instant — voir « Blocages » ci-dessous).
 
 ## Ce qui existe
 
@@ -32,9 +32,10 @@
 - [x] Memory System — `MemoryStore`/`ConversationTurn` (`packages/naminto-core`), `FileMemoryStore` (`packages/memory-system`), câblé dans `apps/api` (`POST /plan` sauvegarde, `GET /plan/:projectId` relit) ; persistance simple par fichier, pas encore de recherche sémantique (MVP, D-2)
 - [x] File System — `FileSystem`/`ProjectFile` (`packages/naminto-core`), `LocalFileSystem` (`packages/file-system`), capture automatique par l'orchestrateur à la fin de chaque `Plan` (D-12), `GET /plan/:projectId/files`
 - [x] User System — `UserSystem`/`User`/`Session` (`packages/naminto-core`), `LocalUserSystem` (`packages/user-system`, D-13), `POST /auth/register`, `POST /auth/login`, `GET /auth/me`
-- [x] Authentification branchée sur `/plan` + isolation par compte (`DECISIONS.md` D-14) — `SessionAuthGuard` protège les trois routes de `PlanController`, clé interne `userId:projectId`
-- [x] User Interface — chat d'intention protégé par connexion (`apps/web/app/page.tsx` + `AuthForm.tsx` + `Chat.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
-- [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration
+- [x] Authentification branchée sur `/plan` + isolation par compte (`DECISIONS.md` D-14) — `SessionAuthGuard` protège les trois routes de `PlanController`
+- [x] Project System — `Project`/`ProjectSystem` (`packages/naminto-core`), `LocalProjectSystem` (`packages/project-system`, D-16), `POST/GET /projects`, propriété vérifiée réellement (pas juste préfixée) avant tout accès à `/plan`
+- [x] User Interface — chat d'intention protégé par connexion et scopé à un projet sélectionné (`apps/web/app/page.tsx` + `AuthForm.tsx` + `ProjectPicker.tsx` + `Chat.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
+- [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration ; renommage/suppression de projets ; visualisation de l'historique/des fichiers d'un projet dans l'UI
 
 ## Prochaine étape recommandée
 
@@ -53,7 +54,8 @@
 10. ~~User System~~ — fait (D-13), module autonome vérifié en conditions réelles.
 11. ~~Brancher l'authentification sur `/plan`/le chat + isolation par compte~~ — fait (D-14), vérifié en conditions réelles.
 12. ~~Corriger le chargement de `ANTHROPIC_API_KEY` dans `apps/api` en dev~~ — fait (D-15), vérifié en conditions réelles.
-13. Retester tout le pipeline dès que du crédit Anthropic réel est disponible — dernière vérification en conditions réelles manquante pour le périmètre MVP D-2, maintenant intégralement complet.
+13. ~~Project System (projets nommés, propriété réelle sur `/plan`)~~ — fait (D-16), vérifié en conditions réelles.
+14. Retester tout le pipeline dès que du crédit Anthropic réel est disponible — dernière vérification en conditions réelles manquante, tout le reste (MVP D-2 + Project System D-16) est intégralement complet.
 
 ## Blocages / questions ouvertes
 

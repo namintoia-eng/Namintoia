@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type {
   AgentOrchestrator,
@@ -8,7 +8,9 @@ import type {
   NewConversationTurn,
   OrchestrationResult,
   Plan,
+  Project,
   ProjectFile,
+  ProjectSystem,
   ReasoningEngine,
   User,
   UserSystem,
@@ -18,6 +20,7 @@ import {
   AGENT_ORCHESTRATOR,
   FILE_SYSTEM,
   MEMORY_STORE,
+  PROJECT_SYSTEM,
   REASONING_ENGINE,
   USER_SYSTEM,
 } from '../naminto-core/naminto-core.module';
@@ -43,6 +46,19 @@ const FAKE_RESULT: OrchestrationResult = {
 
 const USER_A: User = { id: 'user-a', email: 'a@example.com', createdAt: '2026-08-21T00:00:00.000Z' };
 const USER_B: User = { id: 'user-b', email: 'b@example.com', createdAt: '2026-08-21T00:00:00.000Z' };
+
+const PROJECT_A: Project = {
+  id: 'proj-1',
+  ownerId: USER_A.id,
+  name: 'Project A',
+  createdAt: '2026-08-21T00:00:00.000Z',
+};
+const PROJECT_B: Project = {
+  id: 'proj-b1',
+  ownerId: USER_B.id,
+  name: 'Project B',
+  createdAt: '2026-08-21T00:00:00.000Z',
+};
 
 function fakeMemoryStore(): MemoryStore & { saved: NewConversationTurn[] } {
   const saved: NewConversationTurn[] = [];
@@ -90,11 +106,24 @@ function fakeUserSystem(): UserSystem {
   };
 }
 
+function fakeProjectSystem(projects: Project[] = [PROJECT_A, PROJECT_B]): ProjectSystem {
+  return {
+    name: 'fake-project-system',
+    createProject: async () => {
+      throw new Error('not used in these tests');
+    },
+    listProjects: async (ownerId) => projects.filter((p) => p.ownerId === ownerId),
+    getProject: async (ownerId, projectId) =>
+      projects.find((p) => p.id === projectId && p.ownerId === ownerId) ?? null,
+  };
+}
+
 async function buildController(
   reasoningEngine: Partial<ReasoningEngine>,
   orchestrator: Partial<AgentOrchestrator>,
   memory: MemoryStore = fakeMemoryStore(),
   fileSystem: FileSystem = fakeFileSystem(),
+  projectSystem: ProjectSystem = fakeProjectSystem(),
 ): Promise<PlanController> {
   const moduleRef = await Test.createTestingModule({
     controllers: [PlanController],
@@ -104,6 +133,7 @@ async function buildController(
       { provide: MEMORY_STORE, useValue: memory },
       { provide: FILE_SYSTEM, useValue: fileSystem },
       { provide: USER_SYSTEM, useValue: fakeUserSystem() },
+      { provide: PROJECT_SYSTEM, useValue: projectSystem },
     ],
   }).compile();
 
@@ -117,25 +147,14 @@ describe('PlanController', () => {
 
     const controller = await buildController({ planFromIntent }, { run });
 
-    const response = await controller.createAndRun(USER_A, { intent: 'build a login form' });
+    const response = await controller.createAndRun(USER_A, {
+      intent: 'build a login form',
+      projectId: PROJECT_A.id,
+    });
 
     expect(response.plan.intent).toBe('build a login form');
     expect(response.result).toEqual(FAKE_RESULT);
     expect(response.turnId).toBeTruthy();
-  });
-
-  it('saves the turn under the default project when no projectId is given', async () => {
-    const memory = fakeMemoryStore();
-    const controller = await buildController(
-      { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
-      { run: async () => FAKE_RESULT },
-      memory,
-    );
-
-    await controller.createAndRun(USER_A, { intent: 'build a login form' });
-
-    expect(memory.saved).toHaveLength(1);
-    expect(memory.saved[0]?.projectId).toBe('user-a:default');
   });
 
   it('saves the turn under the given projectId, scoped to the user', async () => {
@@ -146,31 +165,9 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun(USER_A, { intent: 'build a login form', projectId: 'proj-1' });
+    await controller.createAndRun(USER_A, { intent: 'build a login form', projectId: PROJECT_A.id });
 
-    expect(memory.saved[0]?.projectId).toBe('user-a:proj-1');
-  });
-
-  it('keeps two users with the same client-facing projectId fully isolated', async () => {
-    const memory = fakeMemoryStore();
-    const controller = await buildController(
-      { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
-      { run: async () => FAKE_RESULT },
-      memory,
-    );
-
-    await controller.createAndRun(USER_A, { intent: 'a plan', projectId: 'shared-name' });
-    await controller.createAndRun(USER_B, { intent: 'b plan', projectId: 'shared-name' });
-
-    expect(memory.saved.map((t) => t.projectId)).toEqual(['user-a:shared-name', 'user-b:shared-name']);
-
-    const historyA = await controller.history(USER_A, 'shared-name');
-    const historyB = await controller.history(USER_B, 'shared-name');
-
-    expect(historyA.turns).toHaveLength(1);
-    expect(historyB.turns).toHaveLength(1);
-    expect(historyA.turns[0]?.intent).toBe('a plan');
-    expect(historyB.turns[0]?.intent).toBe('b plan');
+    expect(memory.saved[0]?.projectId).toBe(`user-a:${PROJECT_A.id}`);
   });
 
   it('returns a project history via GET, with the client-facing projectId in the response', async () => {
@@ -181,16 +178,16 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun(USER_A, { intent: 'first', projectId: 'proj-1' });
-    await controller.createAndRun(USER_A, { intent: 'second', projectId: 'proj-1' });
+    await controller.createAndRun(USER_A, { intent: 'first', projectId: PROJECT_A.id });
+    await controller.createAndRun(USER_A, { intent: 'second', projectId: PROJECT_A.id });
 
-    const history = await controller.history(USER_A, 'proj-1');
+    const history = await controller.history(USER_A, PROJECT_A.id);
 
-    expect(history.projectId).toBe('proj-1');
+    expect(history.projectId).toBe(PROJECT_A.id);
     expect(history.turns).toHaveLength(2);
   });
 
-  it('returns a project\'s captured files via GET', async () => {
+  it("returns a project's captured files via GET", async () => {
     const fileSystem = fakeFileSystem();
     const controller = await buildController(
       { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
@@ -199,13 +196,13 @@ describe('PlanController', () => {
       fileSystem,
     );
     fileSystem.saved.push({
-      projectId: 'user-a:proj-1',
+      projectId: `user-a:${PROJECT_A.id}`,
       files: [{ path: 'hello.txt', content: 'hi' }],
     });
 
-    const files = await controller.files(USER_A, 'proj-1');
+    const files = await controller.files(USER_A, PROJECT_A.id);
 
-    expect(files).toEqual({ projectId: 'proj-1', files: ['hello.txt'] });
+    expect(files).toEqual({ projectId: PROJECT_A.id, files: ['hello.txt'] });
   });
 
   it('rejects a request without an intent field', async () => {
@@ -214,7 +211,9 @@ describe('PlanController', () => {
       { run: async () => FAKE_RESULT },
     );
 
-    await expect(controller.createAndRun(USER_A, {})).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.createAndRun(USER_A, { projectId: PROJECT_A.id }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects a request with an empty intent', async () => {
@@ -223,7 +222,18 @@ describe('PlanController', () => {
       { run: async () => FAKE_RESULT },
     );
 
-    await expect(controller.createAndRun(USER_A, { intent: '   ' })).rejects.toBeInstanceOf(
+    await expect(
+      controller.createAndRun(USER_A, { intent: '   ', projectId: PROJECT_A.id }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a request without a projectId', async () => {
+    const controller = await buildController(
+      { planFromIntent: async () => FAKE_PLAN },
+      { run: async () => FAKE_RESULT },
+    );
+
+    await expect(controller.createAndRun(USER_A, { intent: 'x' })).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
@@ -237,5 +247,59 @@ describe('PlanController', () => {
     await expect(
       controller.createAndRun(USER_A, { intent: 'x', projectId: 42 }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns 404 for an unknown projectId on POST /plan', async () => {
+    const controller = await buildController(
+      { planFromIntent: async () => FAKE_PLAN },
+      { run: async () => FAKE_RESULT },
+    );
+
+    await expect(
+      controller.createAndRun(USER_A, { intent: 'x', projectId: 'does-not-exist' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns 404 when a user requests another user's project on POST /plan", async () => {
+    const controller = await buildController(
+      { planFromIntent: async () => FAKE_PLAN },
+      { run: async () => FAKE_RESULT },
+    );
+
+    await expect(
+      controller.createAndRun(USER_A, { intent: 'x', projectId: PROJECT_B.id }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns 404 when a user requests another user's project history", async () => {
+    const controller = await buildController(
+      { planFromIntent: async () => FAKE_PLAN },
+      { run: async () => FAKE_RESULT },
+    );
+
+    await expect(controller.history(USER_A, PROJECT_B.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns 404 when a user requests another user's project files", async () => {
+    const controller = await buildController(
+      { planFromIntent: async () => FAKE_PLAN },
+      { run: async () => FAKE_RESULT },
+    );
+
+    await expect(controller.files(USER_A, PROJECT_B.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('returns 404 for an unknown projectId on GET history/files', async () => {
+    const controller = await buildController(
+      { planFromIntent: async () => FAKE_PLAN },
+      { run: async () => FAKE_RESULT },
+    );
+
+    await expect(controller.history(USER_A, 'does-not-exist')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(controller.files(USER_A, 'does-not-exist')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

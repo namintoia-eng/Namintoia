@@ -13,6 +13,7 @@ import { DebugAgent } from '@namintoia/debug-agent';
 import { FileMemoryStore } from '@namintoia/memory-system';
 import { LocalFileSystem } from '@namintoia/file-system';
 import { LocalUserSystem } from '@namintoia/user-system';
+import { LocalProjectSystem } from '@namintoia/project-system';
 
 export const NAMINTO_CORE = Symbol('NAMINTO_CORE');
 export const REASONING_ENGINE = Symbol('REASONING_ENGINE');
@@ -20,6 +21,7 @@ export const AGENT_ORCHESTRATOR = Symbol('AGENT_ORCHESTRATOR');
 export const MEMORY_STORE = Symbol('MEMORY_STORE');
 export const FILE_SYSTEM = Symbol('FILE_SYSTEM');
 export const USER_SYSTEM = Symbol('USER_SYSTEM');
+export const PROJECT_SYSTEM = Symbol('PROJECT_SYSTEM');
 
 // Anthropic is the default IntelligenceProvider (DECISIONS.md D-5); the
 // second adaptor (@namintoia/intelligence-openai) is available and tested
@@ -75,6 +77,10 @@ export const USER_SYSTEM = Symbol('USER_SYSTEM');
       provide: USER_SYSTEM,
       useFactory: () => new LocalUserSystem(),
     },
+    {
+      provide: PROJECT_SYSTEM,
+      useFactory: () => new LocalProjectSystem(),
+    },
   ],
   exports: [
     NAMINTO_CORE,
@@ -83,6 +89,7 @@ export const USER_SYSTEM = Symbol('USER_SYSTEM');
     MEMORY_STORE,
     FILE_SYSTEM,
     USER_SYSTEM,
+    PROJECT_SYSTEM,
   ],
 })
 export class NamintoCoreModule {}

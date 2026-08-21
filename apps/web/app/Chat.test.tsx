@@ -22,8 +22,19 @@ function submitIntent(text: string): void {
 function renderChat(overrides: Partial<Parameters<typeof Chat>[0]> = {}) {
   const onLogout = vi.fn();
   const onUnauthorized = vi.fn();
-  render(<Chat token="fake-token" onLogout={onLogout} onUnauthorized={onUnauthorized} {...overrides} />);
-  return { onLogout, onUnauthorized };
+  const onBackToProjects = vi.fn();
+  render(
+    <Chat
+      token="fake-token"
+      projectId="proj-1"
+      projectName="Test Project"
+      onBackToProjects={onBackToProjects}
+      onLogout={onLogout}
+      onUnauthorized={onUnauthorized}
+      {...overrides}
+    />,
+  );
+  return { onLogout, onUnauthorized, onBackToProjects };
 }
 
 describe('Chat', () => {
@@ -34,9 +45,9 @@ describe('Chat', () => {
     cleanup();
   });
 
-  it('renders the heading and the empty state before any submission', () => {
+  it('renders the heading with the project name and the empty state before any submission', () => {
     renderChat();
-    expect(screen.getByRole('heading', { name: 'Naminto IA' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Naminto IA — Test Project/ })).toBeTruthy();
     expect(screen.getByText(/Aucune demande envoyée/)).toBeTruthy();
   });
 
@@ -60,6 +71,10 @@ describe('Chat', () => {
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const requestInit = call[1];
     expect((requestInit.headers as Record<string, string>).authorization).toBe('Bearer fake-token');
+    expect(JSON.parse(requestInit.body as string)).toEqual({
+      intent: 'add hello.txt',
+      projectId: 'proj-1',
+    });
   });
 
   it('shows the plan and a successful result after submitting', async () => {
@@ -131,6 +146,12 @@ describe('Chat', () => {
     const { onLogout } = renderChat();
     fireEvent.click(screen.getByRole('button', { name: /déconnecter/ }));
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onBackToProjects when the back-to-projects button is clicked', () => {
+    const { onBackToProjects } = renderChat();
+    fireEvent.click(screen.getByRole('button', { name: /Projets/ }));
+    expect(onBackToProjects).toHaveBeenCalledTimes(1);
   });
 
   it('does not submit an empty intent', () => {

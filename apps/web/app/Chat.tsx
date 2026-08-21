@@ -14,11 +14,21 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 interface ChatProps {
   token: string;
+  projectId: string;
+  projectName: string;
+  onBackToProjects: () => void;
   onLogout: () => void;
   onUnauthorized: () => void;
 }
 
-export default function Chat({ token, onLogout, onUnauthorized }: ChatProps) {
+export default function Chat({
+  token,
+  projectId,
+  projectName,
+  onBackToProjects,
+  onLogout,
+  onUnauthorized,
+}: ChatProps) {
   const [intent, setIntent] = useState('');
   const [state, setState] = useState<ViewState>({ status: 'idle' });
 
@@ -34,7 +44,7 @@ export default function Chat({ token, onLogout, onUnauthorized }: ChatProps) {
       const response = await fetch(`${API_URL}/plan`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ intent }),
+        body: JSON.stringify({ intent, projectId }),
       });
 
       if (response.status === 401) {
@@ -60,10 +70,15 @@ export default function Chat({ token, onLogout, onUnauthorized }: ChatProps) {
   return (
     <main style={{ maxWidth: 720, margin: '0 auto', padding: '2rem 1rem', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>Naminto IA</h1>
-        <button type="button" onClick={onLogout} style={{ fontSize: '0.85rem' }}>
-          Se déconnecter
-        </button>
+        <h1>Naminto IA — {projectName}</h1>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button type="button" onClick={onBackToProjects} style={{ fontSize: '0.85rem' }}>
+            ← Projets
+          </button>
+          <button type="button" onClick={onLogout} style={{ fontSize: '0.85rem' }}>
+            Se déconnecter
+          </button>
+        </div>
       </div>
       <p>Décris ce que tu veux construire — Naminto planifie, puis exécute.</p>
 

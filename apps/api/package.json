@@ -21,6 +21,7 @@
     "@namintoia/memory-system": "*",
     "@namintoia/naminto-core": "*",
     "@namintoia/payment-stub": "*",
+    "@namintoia/project-system": "*",
     "@namintoia/reasoning-engine": "*",
     "@namintoia/sandbox-e2b": "*",
     "@namintoia/testing-agent": "*",
