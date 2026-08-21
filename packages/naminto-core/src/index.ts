@@ -1,6 +1,10 @@
 export { NamintoCore } from './core.js';
 export type { NamintoCoreProviders } from './core.js';
 
+export type { Agent, AgentOrchestrator, AgentTaskResult, OrchestrationResult } from './agent.js';
+
+export type { AgentRole, AgentTask, FeatureSpec, Plan, ReasoningEngine } from './reasoning.js';
+
 export type {
   BackendProvider,
   BackendProvisionRequest,
