@@ -10,6 +10,8 @@ import type {
   Plan,
   ProjectFile,
   ReasoningEngine,
+  User,
+  UserSystem,
 } from '@namintoia/naminto-core';
 import { describe, expect, it } from 'vitest';
 import {
@@ -17,6 +19,7 @@ import {
   FILE_SYSTEM,
   MEMORY_STORE,
   REASONING_ENGINE,
+  USER_SYSTEM,
 } from '../naminto-core/naminto-core.module';
 import { PlanController } from './plan.controller';
 
@@ -37,6 +40,9 @@ const FAKE_RESULT: OrchestrationResult = {
   results: [{ role: 'coding', success: true, output: 'ok' }],
   success: true,
 };
+
+const USER_A: User = { id: 'user-a', email: 'a@example.com', createdAt: '2026-08-21T00:00:00.000Z' };
+const USER_B: User = { id: 'user-b', email: 'b@example.com', createdAt: '2026-08-21T00:00:00.000Z' };
 
 function fakeMemoryStore(): MemoryStore & { saved: NewConversationTurn[] } {
   const saved: NewConversationTurn[] = [];
@@ -73,6 +79,17 @@ function fakeFileSystem(): FileSystem & { saved: { projectId: string; files: Pro
   };
 }
 
+function fakeUserSystem(): UserSystem {
+  return {
+    name: 'fake-user-system',
+    register: async () => USER_A,
+    authenticate: async () => {
+      throw new Error('not used in these tests');
+    },
+    verifySession: async () => USER_A,
+  };
+}
+
 async function buildController(
   reasoningEngine: Partial<ReasoningEngine>,
   orchestrator: Partial<AgentOrchestrator>,
@@ -86,6 +103,7 @@ async function buildController(
       { provide: AGENT_ORCHESTRATOR, useValue: orchestrator },
       { provide: MEMORY_STORE, useValue: memory },
       { provide: FILE_SYSTEM, useValue: fileSystem },
+      { provide: USER_SYSTEM, useValue: fakeUserSystem() },
     ],
   }).compile();
 
@@ -99,7 +117,7 @@ describe('PlanController', () => {
 
     const controller = await buildController({ planFromIntent }, { run });
 
-    const response = await controller.createAndRun({ intent: 'build a login form' });
+    const response = await controller.createAndRun(USER_A, { intent: 'build a login form' });
 
     expect(response.plan.intent).toBe('build a login form');
     expect(response.result).toEqual(FAKE_RESULT);
@@ -114,13 +132,13 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun({ intent: 'build a login form' });
+    await controller.createAndRun(USER_A, { intent: 'build a login form' });
 
     expect(memory.saved).toHaveLength(1);
-    expect(memory.saved[0]?.projectId).toBe('default');
+    expect(memory.saved[0]?.projectId).toBe('user-a:default');
   });
 
-  it('saves the turn under the given projectId', async () => {
+  it('saves the turn under the given projectId, scoped to the user', async () => {
     const memory = fakeMemoryStore();
     const controller = await buildController(
       { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
@@ -128,12 +146,12 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun({ intent: 'build a login form', projectId: 'proj-1' });
+    await controller.createAndRun(USER_A, { intent: 'build a login form', projectId: 'proj-1' });
 
-    expect(memory.saved[0]?.projectId).toBe('proj-1');
+    expect(memory.saved[0]?.projectId).toBe('user-a:proj-1');
   });
 
-  it('returns a project history via GET', async () => {
+  it('keeps two users with the same client-facing projectId fully isolated', async () => {
     const memory = fakeMemoryStore();
     const controller = await buildController(
       { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
@@ -141,10 +159,32 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun({ intent: 'first', projectId: 'proj-1' });
-    await controller.createAndRun({ intent: 'second', projectId: 'proj-1' });
+    await controller.createAndRun(USER_A, { intent: 'a plan', projectId: 'shared-name' });
+    await controller.createAndRun(USER_B, { intent: 'b plan', projectId: 'shared-name' });
 
-    const history = await controller.history('proj-1');
+    expect(memory.saved.map((t) => t.projectId)).toEqual(['user-a:shared-name', 'user-b:shared-name']);
+
+    const historyA = await controller.history(USER_A, 'shared-name');
+    const historyB = await controller.history(USER_B, 'shared-name');
+
+    expect(historyA.turns).toHaveLength(1);
+    expect(historyB.turns).toHaveLength(1);
+    expect(historyA.turns[0]?.intent).toBe('a plan');
+    expect(historyB.turns[0]?.intent).toBe('b plan');
+  });
+
+  it('returns a project history via GET, with the client-facing projectId in the response', async () => {
+    const memory = fakeMemoryStore();
+    const controller = await buildController(
+      { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
+      { run: async () => FAKE_RESULT },
+      memory,
+    );
+
+    await controller.createAndRun(USER_A, { intent: 'first', projectId: 'proj-1' });
+    await controller.createAndRun(USER_A, { intent: 'second', projectId: 'proj-1' });
+
+    const history = await controller.history(USER_A, 'proj-1');
 
     expect(history.projectId).toBe('proj-1');
     expect(history.turns).toHaveLength(2);
@@ -159,11 +199,11 @@ describe('PlanController', () => {
       fileSystem,
     );
     fileSystem.saved.push({
-      projectId: 'proj-1',
+      projectId: 'user-a:proj-1',
       files: [{ path: 'hello.txt', content: 'hi' }],
     });
 
-    const files = await controller.files('proj-1');
+    const files = await controller.files(USER_A, 'proj-1');
 
     expect(files).toEqual({ projectId: 'proj-1', files: ['hello.txt'] });
   });
@@ -174,7 +214,7 @@ describe('PlanController', () => {
       { run: async () => FAKE_RESULT },
     );
 
-    await expect(controller.createAndRun({})).rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.createAndRun(USER_A, {})).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects a request with an empty intent', async () => {
@@ -183,7 +223,7 @@ describe('PlanController', () => {
       { run: async () => FAKE_RESULT },
     );
 
-    await expect(controller.createAndRun({ intent: '   ' })).rejects.toBeInstanceOf(
+    await expect(controller.createAndRun(USER_A, { intent: '   ' })).rejects.toBeInstanceOf(
       BadRequestException,
     );
   });
@@ -195,7 +235,7 @@ describe('PlanController', () => {
     );
 
     await expect(
-      controller.createAndRun({ intent: 'x', projectId: 42 }),
+      controller.createAndRun(USER_A, { intent: 'x', projectId: 42 }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

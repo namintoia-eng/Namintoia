@@ -4,13 +4,15 @@ import {
   ConflictException,
   Controller,
   Get,
-  Headers,
   Inject,
   Post,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import type { Session, User, UserSystem } from '@namintoia/naminto-core';
 import { USER_SYSTEM } from '../naminto-core/naminto-core.module';
+import { CurrentUser } from './current-user.decorator';
+import { SessionAuthGuard } from './session-auth.guard';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -43,12 +45,8 @@ export class AuthController {
   }
 
   @Get('me')
-  async me(@Headers('authorization') authorization: string | undefined): Promise<User> {
-    const token = extractBearerToken(authorization);
-    const user = await this.userSystem.verifySession(token);
-    if (!user) {
-      throw new UnauthorizedException('Invalid or expired session.');
-    }
+  @UseGuards(SessionAuthGuard)
+  me(@CurrentUser() user: User): User {
     return user;
   }
 }
@@ -70,14 +68,6 @@ function extractCredentials(body: unknown): { email: string; password: string } 
   }
 
   return { email, password };
-}
-
-function extractBearerToken(authorization: string | undefined): string {
-  const prefix = 'Bearer ';
-  if (!authorization || !authorization.startsWith(prefix)) {
-    throw new UnauthorizedException('Missing or malformed Authorization header.');
-  }
-  return authorization.slice(prefix.length);
 }
 
 function errorMessage(error: unknown): string {

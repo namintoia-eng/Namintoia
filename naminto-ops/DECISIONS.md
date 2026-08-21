@@ -195,6 +195,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Le contrat `UserSystem` reste stable pour un futur fournisseur OAuth2/OIDC réel — seule l'implémentation change le jour venu. Aucune association projet ↔ utilisateur pour l'instant (`/plan` continue d'utiliser un `projectId` libre, pas un compte) ; brancher l'auth sur `/plan` et ajouter un écran de connexion sur `apps/web` restent des chantiers explicitement hors de cette décision.
 
-<!-- Prochaine entrée : D-14 -->
+### D-14 — Authentification branchée sur /plan, isolation par compte (2026-08-21)
 
-<!-- Prochaine entrée : D-13 -->
+**Statut :** acceptée
+
+**Contexte :** Le User System (D-13) existait comme module autonome, non branché. L'utilisateur a demandé de le brancher réellement ("Il faut brancher l'authentification"). Question clarifiée avec l'utilisateur : isolation par compte — sans elle, exiger une connexion aurait été un faux sentiment de sécurité (un utilisateur connecté aurait pu lire l'historique/les fichiers d'un autre en devinant le même `projectId`).
+
+**Décision :** `apps/api/src/auth/session-auth.guard.ts` — `SessionAuthGuard implements CanActivate` : lit l'en-tête `Authorization`, appelle `UserSystem.verifySession(token)`, attache l'utilisateur résolu à `request.user` (401 sinon). `@CurrentUser()` (`current-user.decorator.ts`) lit cet utilisateur dans les contrôleurs. `GET /auth/me` refactorisé pour utiliser ce garde au lieu de reparser le jeton lui-même. `PlanController` porte désormais `@UseGuards(SessionAuthGuard)` sur les trois routes (`POST /plan`, `GET /plan/:projectId`, `GET /plan/:projectId/files`) ; chacune calcule en interne une clé scopée `` `${user.id}:${projectId}` `` utilisée pour tous les appels internes (orchestrateur, `MemoryStore`, `FileSystem`) — la réponse HTTP continue d'exposer le `projectId` choisi par le client, pas la version préfixée, pour ne rien changer côté UI. `apps/web` découpé en trois : `AuthForm.tsx` (connexion/inscription, l'inscription enchaîne automatiquement la connexion), `Chat.tsx` (logique existante + en-tête `Authorization: Bearer <token>` + bouton de déconnexion), `page.tsx` (coquille qui vérifie un jeton `localStorage` via `GET /auth/me` au montage et bascule entre les deux).
+
+**Vérification en conditions réelles (pas seulement en mock) :** serveur API démarré, `curl POST /plan` sans jeton → `401` confirmé sur les trois routes ; `register` → `login` → `GET /auth/me` avec jeton → utilisateur retourné ; navigateur réel — inscription → connexion automatique → chat affiché → session survit à un rechargement de page (revérifiée via `/auth/me`) → déconnexion → jeton effacé du `localStorage` → retour à l'écran de connexion. `POST /plan` authentifié échoue en aval avec `ANTHROPIC_API_KEY is not configured` malgré une clé présente dans `.env` racine — limité au chargement d'environnement de `apps/api` en dev, sans rapport avec le garde d'authentification (qui a laissé passer la requête avant d'échouer plus loin) ; noté comme point à corriger séparément, hors périmètre de cette décision.
+
+**Alternatives envisagées :** Garder `/plan` accessible sans compte et n'ajouter la vérification que côté UI (rejeté : une vérification uniquement côté client n'est pas une vraie protection, contredit `RULES.md`/permission à chaque étape). Un système de projets nommés par utilisateur (liste, renommage, etc.) pour l'isolation (rejeté pour l'instant : le préfixage interne `userId:projectId` suffit à empêcher la fuite de données entre comptes sans construire tout un Project System non demandé).
+
+**Conséquences :** Le flux anonyme démontré jusqu'ici (`POST /plan` sans compte) n'existe plus — un compte est désormais obligatoire pour tout le pipeline plan/chat. Le chargement de `ANTHROPIC_API_KEY` dans `apps/api` reste à corriger avant qu'une démo `/plan` bout-en-bout complète soit possible. Pas de vrai "Project System" (projets nommés, listés, renommables par utilisateur) — hors scope, à décider plus tard.
+
+<!-- Prochaine entrée : D-15 -->

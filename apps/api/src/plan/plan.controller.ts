@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Param, Post, UseGuards } from '@nestjs/common';
 import type {
   AgentOrchestrator,
   ConversationTurn,
@@ -7,7 +7,10 @@ import type {
   OrchestrationResult,
   Plan,
   ReasoningEngine,
+  User,
 } from '@namintoia/naminto-core';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { SessionAuthGuard } from '../auth/session-auth.guard';
 import {
   AGENT_ORCHESTRATOR,
   FILE_SYSTEM,
@@ -33,7 +36,15 @@ interface ProjectFilesResponse {
   files: string[];
 }
 
+/**
+ * Every project is scoped to the authenticated user internally (userId:projectId)
+ * so two accounts can never read each other's history/files by guessing the
+ * same client-facing projectId (DECISIONS.md D-14) — there's no real Project
+ * System yet, this is the smallest thing that makes "requires login" an
+ * actual isolation boundary rather than a formality.
+ */
 @Controller('plan')
+@UseGuards(SessionAuthGuard)
 export class PlanController {
   constructor(
     @Inject(REASONING_ENGINE) private readonly reasoningEngine: ReasoningEngine,
@@ -43,25 +54,36 @@ export class PlanController {
   ) {}
 
   @Post()
-  async createAndRun(@Body() body: unknown): Promise<RunPlanResponse> {
+  async createAndRun(@CurrentUser() user: User, @Body() body: unknown): Promise<RunPlanResponse> {
     const { intent, projectId } = extractRequest(body);
+    const scopedProjectId = scopeProjectId(user.id, projectId);
     const plan = await this.reasoningEngine.planFromIntent(intent);
-    const result = await this.orchestrator.run(plan, projectId);
-    const turn = await this.memory.saveTurn({ projectId, intent, plan, result });
+    const result = await this.orchestrator.run(plan, scopedProjectId);
+    const turn = await this.memory.saveTurn({ projectId: scopedProjectId, intent, plan, result });
     return { plan, result, turnId: turn.id };
   }
 
   @Get(':projectId')
-  async history(@Param('projectId') projectId: string): Promise<ProjectHistoryResponse> {
-    const turns = await this.memory.listTurns(projectId);
+  async history(
+    @CurrentUser() user: User,
+    @Param('projectId') projectId: string,
+  ): Promise<ProjectHistoryResponse> {
+    const turns = await this.memory.listTurns(scopeProjectId(user.id, projectId));
     return { projectId, turns };
   }
 
   @Get(':projectId/files')
-  async files(@Param('projectId') projectId: string): Promise<ProjectFilesResponse> {
-    const files = await this.fileSystem.listProjectFiles(projectId);
+  async files(
+    @CurrentUser() user: User,
+    @Param('projectId') projectId: string,
+  ): Promise<ProjectFilesResponse> {
+    const files = await this.fileSystem.listProjectFiles(scopeProjectId(user.id, projectId));
     return { projectId, files };
   }
+}
+
+function scopeProjectId(userId: string, projectId: string): string {
+  return `${userId}:${projectId}`;
 }
 
 function extractRequest(body: unknown): { intent: string; projectId: string } {

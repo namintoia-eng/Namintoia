@@ -85,28 +85,14 @@ describe('AuthController', () => {
     });
   });
 
+  // The 401 cases (missing/malformed header, unknown/expired token) are
+  // enforced by SessionAuthGuard, not this method — see
+  // session-auth.guard.spec.ts. me() itself just echoes back whatever user
+  // the guard already attached to the request.
   describe('me', () => {
-    it('returns the user for a valid bearer token', async () => {
-      const controller = await buildController({ verifySession: async () => FAKE_USER });
-      const user = await controller.me('Bearer tok_1');
-      expect(user).toEqual(FAKE_USER);
-    });
-
-    it('rejects a missing Authorization header', async () => {
+    it('returns the current user', async () => {
       const controller = await buildController({});
-      await expect(controller.me(undefined)).rejects.toBeInstanceOf(UnauthorizedException);
-    });
-
-    it('rejects a malformed Authorization header', async () => {
-      const controller = await buildController({});
-      await expect(controller.me('tok_1')).rejects.toBeInstanceOf(UnauthorizedException);
-    });
-
-    it('rejects a token that does not resolve to a user', async () => {
-      const controller = await buildController({ verifySession: async () => null });
-      await expect(controller.me('Bearer expired-or-unknown')).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      expect(controller.me(FAKE_USER)).toEqual(FAKE_USER);
     });
   });
 });
