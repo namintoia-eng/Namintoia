@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session Testing Agent + Debug Agent — `packages/agent-kit` créé (`ShellScriptAgent`, classe abstraite partagée par les 3 agents à base de script shell, D-9). `TestingAgent` (`packages/testing-agent`) et `DebugAgent` (`packages/debug-agent`) ajoutés sur ce patron. `CodingAgent` refactorisé pour hériter de `ShellScriptAgent` (comportement inchangé, tests allégés car la logique partagée est désormais testée une seule fois dans `agent-kit`). `SequentialAgentOrchestrator` gagne une boucle de retry bornée à 3 tentatives (configurable) : si une tâche échoue et qu'un agent `debug` est enregistré, il est invoqué jusqu'à épuisement des tentatives avant d'abandonner ; sans agent `debug` enregistré, comportement inchangé. Les trois agents sont enregistrés dans `apps/api` (`coding`/`testing`/`debug`) ; démarrage de l'API vérifié en conditions réelles (boot propre, DI résolue, `/health` répond). `npm run lint`, `typecheck`, `test` et `build` passent tous.
+- Par : session Memory System — nouveau contrat `MemoryStore`/`ConversationTurn` dans `packages/naminto-core` (persiste un échange complet : intention → `Plan` → `OrchestrationResult`, horodaté). Implémentation MVP par défaut : `FileMemoryStore` (`packages/memory-system`) — un fichier JSON par projet, écritures sérialisées par projet pour éviter une course lecture-modification-écriture, aucune base de données requise. Câblé dans `apps/api` : `POST /plan` accepte désormais un `projectId` optionnel (`"default"` si absent) et sauvegarde chaque échange ; nouvel endpoint `GET /plan/:projectId` renvoie l'historique. Vérifié en conditions réelles : écriture/lecture sur disque réel confirmée (hors mocks), `GET /plan/default` testé sur le serveur démarré. `npm run lint`, `typecheck`, `test` (29/29) et `build` passent tous.
 
 ## Phase actuelle
 
-**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant complet** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (avec boucle de correction bornée), Coding/Testing/Debug Agent, sandbox réel (E2B), User Interface de chat. Seuls restent : Memory System, File System, User System (non commencés, hors scope de cette série de sessions) et la vérification en conditions réelles complète une fois le crédit Anthropic disponible.
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant complet, Memory System inclus** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (avec boucle de correction bornée), Coding/Testing/Debug Agent, sandbox réel (E2B), User Interface de chat, Memory System (persistance fichier). Restent hors scope tant que non demandés explicitement : File System, User System — et la vérification en conditions réelles complète du pipeline une fois le crédit Anthropic disponible.
 
 ## Ce qui existe
 
@@ -28,7 +28,7 @@
 - [x] Testing Agent — `TestingAgent` (`packages/testing-agent`), écrit et exécute de vrais tests couvrant les cas limites, pas seulement le chemin heureux (`testing-agent.md`)
 - [x] Debug Agent — `DebugAgent` (`packages/debug-agent`), diagnostique et corrige une tâche en échec, invoqué par l'orchestrateur en boucle bornée à 3 tentatives (`debug-agent.md`, D-9)
 - [x] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché) — E2B, D-8
-- [ ] Memory System (MVP, persistance d'état simple, pas encore de recherche sémantique)
+- [x] Memory System — `MemoryStore`/`ConversationTurn` (`packages/naminto-core`), `FileMemoryStore` (`packages/memory-system`), câblé dans `apps/api` (`POST /plan` sauvegarde, `GET /plan/:projectId` relit) ; persistance simple par fichier, pas encore de recherche sémantique (MVP, D-2)
 - [ ] File System (MVP)
 - [ ] User System (MVP, authentification simple)
 - [x] User Interface — chat d'intention minimal (`apps/web/app/page.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
@@ -45,8 +45,9 @@
 5a. ~~Brancher Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api`~~ — fait (`POST /plan`), vérifié en conditions réelles.
 5b. ~~User Interface de chat sur `apps/web`~~ — fait, vérifiée en navigateur réel (et un bug CORS trouvé/corrigé au passage).
 6. ~~Testing Agent + Debug Agent~~ — fait (D-9), boucle de correction bornée à 3 tentatives dans l'orchestrateur.
-7. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — seule vérification en conditions réelles qui manque encore pour le périmètre MVP D-2.
-8. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : Memory System, File System, User System.
+7. ~~Memory System~~ — fait, `FileMemoryStore` câblé sur `POST/GET /plan`.
+8. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — seule vérification en conditions réelles qui manque encore pour le périmètre MVP D-2, maintenant fonctionnellement complet.
+9. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : File System, User System.
 
 ## Blocages / questions ouvertes
 

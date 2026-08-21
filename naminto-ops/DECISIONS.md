@@ -143,4 +143,16 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** `apps/api` enregistre désormais les trois agents (`coding`, `testing`, `debug`) auprès de l'`AgentOrchestrator`. Tout futur agent au même patron (script shell + sandbox) doit étendre `ShellScriptAgent` plutôt que ré-implémenter `Agent` depuis zéro.
 
-<!-- Prochaine entrée : D-10 -->
+### D-10 — Memory System : persistance fichier (`FileMemoryStore`), pas de base de données au MVP (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** Ajout du Memory System (MVP, `DECISIONS.md` D-2 : "persistance d'état simple, pas encore de recherche sémantique complète"). Aucune infrastructure de base de données réelle n'existe encore (`BackendProvider`/`DATABASE_URL` non configurés, D-4) — attendre cette infra aurait bloqué le Memory System sur la même dépendance externe que `BackendProvider`, sans raison : ce sont deux composants distincts (le Memory System persiste le contexte de *Naminto lui-même*, le `BackendProvider` provisionne le backend des applications *générées pour l'utilisateur final*).
+
+**Décision :** Nouveau contrat `MemoryStore`/`ConversationTurn` dans `packages/naminto-core` (persiste un échange complet : intention → `Plan` → `OrchestrationResult`, horodaté). Implémentation par défaut `FileMemoryStore` (`packages/memory-system`) : un fichier JSON par projet sous un répertoire local (`MEMORY_STORE_DIR`, défaut `.naminto/memory/`, exclu de git), écritures sérialisées par projet (file d'attente en mémoire) pour éviter une course lecture-modification-écriture entre deux sauvegardes quasi simultanées du même projet — protection limitée à un seul processus, pas multi-instance (une vraie base de données serait nécessaire pour ça).
+
+**Alternatives envisagées :** Attendre une vraie base de données (`BackendProvider`/D-4) avant de commencer le Memory System (rejeté : blocage évitable sur une dépendance externe non liée, alors qu'une persistance simple suffisante pour le MVP peut fonctionner immédiatement sans aucun compte ni infrastructure). Persistance en mémoire uniquement, sans fichier (rejeté : perdrait tout l'historique à chaque redémarrage du serveur, ne remplirait pas la promesse "persistance entre sessions" du `GLOSSARY.md`).
+
+**Conséquences :** `apps/api` : `POST /plan` accepte un `projectId` optionnel (`"default"` si absent) et sauvegarde chaque échange ; nouvel endpoint `GET /plan/:projectId` relit l'historique. Une future migration vers une vraie base de données (une fois `BackendProvider`/D-4 réellement provisionné) n'implique de changer que l'implémentation `MemoryStore` branchée dans `apps/api`, pas le contrat ni les appelants — cohérent avec le principe d'interface stable de `RULES.md`.
+
+<!-- Prochaine entrée : D-11 -->

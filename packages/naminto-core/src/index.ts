@@ -5,6 +5,8 @@ export type { Agent, AgentOrchestrator, AgentTaskResult, OrchestrationResult } f
 
 export type { AgentRole, AgentTask, FeatureSpec, Plan, ReasoningEngine } from './reasoning.js';
 
+export type { ConversationTurn, MemoryStore, NewConversationTurn } from './memory.js';
+
 export type {
   BackendProvider,
   BackendProvisionRequest,

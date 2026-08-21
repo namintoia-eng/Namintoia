@@ -17,6 +17,7 @@
     "@namintoia/debug-agent": "*",
     "@namintoia/intelligence-anthropic": "*",
     "@namintoia/intelligence-openai": "*",
+    "@namintoia/memory-system": "*",
     "@namintoia/naminto-core": "*",
     "@namintoia/payment-stub": "*",
     "@namintoia/reasoning-engine": "*",
