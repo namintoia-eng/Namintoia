@@ -13,6 +13,12 @@ const fakeSandbox: SandboxProvider = {
       async execute() {
         return { exitCode: 0, timedOut: false, durationMs: 1 };
       },
+      async listFiles() {
+        return [];
+      },
+      async readFile() {
+        return '';
+      },
       async close() {},
     };
   },

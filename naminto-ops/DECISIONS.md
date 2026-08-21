@@ -169,4 +169,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** `Agent.run(task, context)` prend désormais un `AgentRunContext` contenant la session — tout agent doit l'utiliser plutôt que garder sa propre référence sandbox (les constructeurs `CodingAgent`/`TestingAgent`/`DebugAgent` ne prennent d'ailleurs plus de `SandboxProvider` du tout, seulement l'`IntelligenceProvider`). `AgentOrchestrator.run()` prend désormais un `projectId` en second paramètre. Le File System (prochaine étape) peut maintenant capturer un état de fichiers cohérent à la fin d'un `Plan`, puisque toutes les tâches ont réellement partagé le même espace.
 
-<!-- Prochaine entrée : D-12 -->
+### D-12 — File System : capture des fichiers du sandbox à la fin d'un Plan, remplacement à chaque run (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** Le sandbox partagé (D-11) fait survivre les fichiers le temps d'un `Plan`, mais le sandbox lui-même est détruit dans le `finally` de l'orchestrateur une fois le run terminé — sans capture explicite, tout ce que les agents ont écrit disparaît quand même. Le File System (MVP, `GLOSSARY.md`) doit exister pour que le travail produit survive au-delà d'une exécution.
+
+**Décision :** Nouveau contrat `FileSystem`/`ProjectFile` dans `packages/naminto-core`, plus une constante partagée `PROJECT_WORKING_DIRECTORY` (`/home/user/project`) que `ShellScriptAgent` utilise comme répertoire de travail (avec un `mkdir -p` idempotent avant chaque tâche) et que `SequentialAgentOrchestrator` relit à la fin du run. `SandboxSession` gagne `listFiles()`/`readFile()`. `SequentialAgentOrchestrator.run()` liste et lit tous les fichiers du sandbox **avant** de le fermer (dans le `finally`, avant `session.close()`), et les sauvegarde via `FileSystem.saveProjectFiles()` — capture faite même si le plan échoue ou si un agent lève une exception (seule une erreur de capture elle-même fait échouer tout le run, pour ne jamais prétendre silencieusement avoir conservé des fichiers qui ne l'ont pas été). Implémentation par défaut `LocalFileSystem` (`packages/file-system`) : un répertoire local par projet, protection anti-traversée de chemin (`../`), `saveProjectFiles` **remplace** l'instantané précédent plutôt que de fusionner — cohérent avec le fait qu'un sandbox ne reprend pas encore l'état d'un run précédent (chaque `Plan` démarre d'un sandbox vide, donc chaque capture représente fidèlement "ce que ce run a produit", pas un historique cumulé).
+
+**Bug trouvé en vérifiant contre un vrai sandbox E2B :** la documentation SDK consultée indiquait `depth: -1` pour un listing récursif illimité ; le SDK réellement installé (`e2b@2.45.0`) rejette toute valeur `depth < 1` (`InvalidArgumentError`). Corrigé avec une profondeur finie généreuse (`depth: 100`, largement suffisante pour l'arborescence d'un projet généré) — la documentation en ligne référençait une version différente du SDK que celle réellement installée.
+
+**Alternatives envisagées :** Capturer les fichiers après chaque tâche plutôt qu'une seule fois à la fin du `Plan` (rejeté pour le MVP : plus d'appels réseau vers E2B sans bénéfice clair tant qu'il n'y a pas de consommateur pour un état intermédiaire). Fusionner les instantanés entre runs successifs (rejeté : suppose une continuité de session qui n'existe pas encore — mentir sur la persistance serait pire que d'assumer clairement la limite actuelle).
+
+**Conséquences :** `apps/api` : nouvel endpoint `GET /plan/:projectId/files` liste les fichiers capturés. Le jour où les sessions sandbox pourront reprendre un état antérieur (hors scope actuel), `saveProjectFiles` en mode "remplacement" devra être revisité pour éviter de perdre des fichiers d'un run précédent que le nouveau run n'a pas touchés.
+
+<!-- Prochaine entrée : D-13 -->

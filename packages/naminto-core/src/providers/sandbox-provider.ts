@@ -23,6 +23,11 @@ export interface SandboxExecutionResult {
   durationMs: number;
 }
 
+export interface SandboxFileEntry {
+  path: string;
+  type: 'file' | 'directory';
+}
+
 /**
  * A single isolated environment that stays alive across multiple commands,
  * so a Plan's tasks (coding, then testing, then a debug retry) all see the
@@ -35,6 +40,8 @@ export interface SandboxSession {
     request: SandboxCommandRequest,
     onOutput?: (chunk: SandboxOutputChunk) => void,
   ): Promise<SandboxExecutionResult>;
+  listFiles(directory: string): Promise<SandboxFileEntry[]>;
+  readFile(path: string): Promise<string>;
   close(): Promise<void>;
 }
 

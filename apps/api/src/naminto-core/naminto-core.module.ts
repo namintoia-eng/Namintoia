@@ -11,11 +11,13 @@ import { CodingAgent } from '@namintoia/coding-agent';
 import { TestingAgent } from '@namintoia/testing-agent';
 import { DebugAgent } from '@namintoia/debug-agent';
 import { FileMemoryStore } from '@namintoia/memory-system';
+import { LocalFileSystem } from '@namintoia/file-system';
 
 export const NAMINTO_CORE = Symbol('NAMINTO_CORE');
 export const REASONING_ENGINE = Symbol('REASONING_ENGINE');
 export const AGENT_ORCHESTRATOR = Symbol('AGENT_ORCHESTRATOR');
 export const MEMORY_STORE = Symbol('MEMORY_STORE');
+export const FILE_SYSTEM = Symbol('FILE_SYSTEM');
 
 // Anthropic is the default IntelligenceProvider (DECISIONS.md D-5); the
 // second adaptor (@namintoia/intelligence-openai) is available and tested
@@ -46,9 +48,13 @@ export const MEMORY_STORE = Symbol('MEMORY_STORE');
       useFactory: (core: NamintoCore) => new IntelligenceReasoningEngine(core.intelligence),
     },
     {
+      provide: FILE_SYSTEM,
+      useFactory: () => new LocalFileSystem(),
+    },
+    {
       provide: AGENT_ORCHESTRATOR,
-      inject: [NAMINTO_CORE],
-      useFactory: (core: NamintoCore) =>
+      inject: [NAMINTO_CORE, FILE_SYSTEM],
+      useFactory: (core: NamintoCore, fileSystem: LocalFileSystem) =>
         new SequentialAgentOrchestrator(
           new Map<AgentRole, Agent>([
             ['coding', new CodingAgent(core.intelligence)],
@@ -56,6 +62,7 @@ export const MEMORY_STORE = Symbol('MEMORY_STORE');
             ['debug', new DebugAgent(core.intelligence)],
           ]),
           core.sandbox,
+          fileSystem,
         ),
     },
     {
@@ -63,6 +70,6 @@ export const MEMORY_STORE = Symbol('MEMORY_STORE');
       useFactory: () => new FileMemoryStore(),
     },
   ],
-  exports: [NAMINTO_CORE, REASONING_ENGINE, AGENT_ORCHESTRATOR, MEMORY_STORE],
+  exports: [NAMINTO_CORE, REASONING_ENGINE, AGENT_ORCHESTRATOR, MEMORY_STORE, FILE_SYSTEM],
 })
 export class NamintoCoreModule {}

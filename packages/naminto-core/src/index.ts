@@ -13,6 +13,10 @@ export type { AgentRole, AgentTask, FeatureSpec, Plan, ReasoningEngine } from '.
 
 export type { ConversationTurn, MemoryStore, NewConversationTurn } from './memory.js';
 
+export type { FileSystem, ProjectFile } from './file-system.js';
+
+export { PROJECT_WORKING_DIRECTORY } from './constants.js';
+
 export type {
   BackendProvider,
   BackendProvisionRequest,
@@ -33,6 +37,7 @@ export type {
   SandboxCommandRequest,
   SandboxExecutionLimits,
   SandboxExecutionResult,
+  SandboxFileEntry,
   SandboxOutputChunk,
   SandboxProvider,
   SandboxSession,

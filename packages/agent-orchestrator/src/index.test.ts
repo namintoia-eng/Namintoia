@@ -3,7 +3,10 @@ import type {
   AgentRunContext,
   AgentTask,
   AgentTaskResult,
+  FileSystem,
   Plan,
+  ProjectFile,
+  SandboxFileEntry,
   SandboxProvider,
   SandboxSession,
 } from '@namintoia/naminto-core';
@@ -41,7 +44,10 @@ function fakeAgentSucceedingOnAttempt(
   };
 }
 
-function fakeSandboxProvider(): SandboxProvider & { sessions: (SandboxSession & { closed: boolean })[] } {
+function fakeSandboxProvider(
+  files: SandboxFileEntry[] = [],
+  fileContents: Record<string, string> = {},
+): SandboxProvider & { sessions: (SandboxSession & { closed: boolean })[] } {
   const sessions: (SandboxSession & { closed: boolean })[] = [];
   return {
     name: 'fake-sandbox',
@@ -53,12 +59,35 @@ function fakeSandboxProvider(): SandboxProvider & { sessions: (SandboxSession & 
         async execute() {
           return { exitCode: 0, timedOut: false, durationMs: 1 };
         },
+        async listFiles() {
+          return files;
+        },
+        async readFile(path: string) {
+          return fileContents[path] ?? '';
+        },
         async close() {
           session.closed = true;
         },
       };
       sessions.push(session);
       return session;
+    },
+  };
+}
+
+function fakeFileSystem(): FileSystem & { saved: { projectId: string; files: ProjectFile[] }[] } {
+  const saved: { projectId: string; files: ProjectFile[] }[] = [];
+  return {
+    name: 'fake-file-system',
+    saved,
+    async saveProjectFiles(projectId: string, files: ProjectFile[]) {
+      saved.push({ projectId, files });
+    },
+    async listProjectFiles() {
+      return [];
+    },
+    async readProjectFile() {
+      return '';
     },
   };
 }
@@ -88,6 +117,7 @@ describe('SequentialAgentOrchestrator', () => {
         ['testing', testing],
       ]),
       sandbox,
+      fakeFileSystem(),
     );
 
     const plan = planWith([
@@ -113,6 +143,7 @@ describe('SequentialAgentOrchestrator', () => {
         ['testing', testing],
       ]),
       sandbox,
+      fakeFileSystem(),
     );
 
     const plan = planWith([
@@ -131,7 +162,11 @@ describe('SequentialAgentOrchestrator', () => {
   it('closes the sandbox session even when a task fails', async () => {
     const coding = fakeAgent('coding', false);
     const sandbox = fakeSandboxProvider();
-    const orchestrator = new SequentialAgentOrchestrator(new Map([['coding', coding]]), sandbox);
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([['coding', coding]]),
+      sandbox,
+      fakeFileSystem(),
+    );
 
     await orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'write the code' }]), 'proj-1');
 
@@ -146,7 +181,11 @@ describe('SequentialAgentOrchestrator', () => {
       },
     };
     const sandbox = fakeSandboxProvider();
-    const orchestrator = new SequentialAgentOrchestrator(new Map([['coding', throwing]]), sandbox);
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([['coding', throwing]]),
+      sandbox,
+      fakeFileSystem(),
+    );
 
     await expect(
       orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'x' }]), 'proj-1'),
@@ -165,6 +204,7 @@ describe('SequentialAgentOrchestrator', () => {
         ['testing', testing],
       ]),
       sandbox,
+      fakeFileSystem(),
     );
 
     const plan = planWith([
@@ -180,7 +220,11 @@ describe('SequentialAgentOrchestrator', () => {
   });
 
   it('throws a clear error when a task needs an unregistered agent role', async () => {
-    const orchestrator = new SequentialAgentOrchestrator(new Map(), fakeSandboxProvider());
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map(),
+      fakeSandboxProvider(),
+      fakeFileSystem(),
+    );
     const plan = planWith([{ agentRole: 'debug', instruction: 'fix it' }]);
 
     await expect(orchestrator.run(plan, 'proj-1')).rejects.toThrow(
@@ -198,6 +242,7 @@ describe('SequentialAgentOrchestrator', () => {
         ['debug', debug],
       ]),
       sandbox,
+      fakeFileSystem(),
     );
 
     const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
@@ -219,6 +264,7 @@ describe('SequentialAgentOrchestrator', () => {
         ['debug', debug],
       ]),
       sandbox,
+      fakeFileSystem(),
       { maxDebugAttempts: 3 },
     );
 
@@ -240,6 +286,7 @@ describe('SequentialAgentOrchestrator', () => {
         ['debug', debug],
       ]),
       sandbox,
+      fakeFileSystem(),
     );
 
     const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
@@ -247,5 +294,52 @@ describe('SequentialAgentOrchestrator', () => {
 
     expect(result.success).toBe(true);
     expect(debug.calls).toHaveLength(0);
+  });
+
+  it('captures files from the sandbox into the FileSystem before closing the session', async () => {
+    const coding = fakeAgent('coding', true);
+    const sandbox = fakeSandboxProvider(
+      [
+        { path: '/home/user/project/hello.txt', type: 'file' },
+        { path: '/home/user/project/src', type: 'directory' },
+        { path: '/home/user/project/src/index.ts', type: 'file' },
+      ],
+      {
+        '/home/user/project/hello.txt': 'hello',
+        '/home/user/project/src/index.ts': 'export {}',
+      },
+    );
+    const fileSystem = fakeFileSystem();
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([['coding', coding]]),
+      sandbox,
+      fileSystem,
+    );
+
+    await orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'write the code' }]), 'proj-1');
+
+    expect(fileSystem.saved).toHaveLength(1);
+    expect(fileSystem.saved[0]?.projectId).toBe('proj-1');
+    expect(fileSystem.saved[0]?.files).toEqual([
+      { path: 'hello.txt', content: 'hello' },
+      { path: 'src/index.ts', content: 'export {}' },
+    ]);
+  });
+
+  it('captures files even when the plan fails', async () => {
+    const coding = fakeAgent('coding', false);
+    const sandbox = fakeSandboxProvider([{ path: '/home/user/project/partial.txt', type: 'file' }], {
+      '/home/user/project/partial.txt': 'partial work',
+    });
+    const fileSystem = fakeFileSystem();
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([['coding', coding]]),
+      sandbox,
+      fileSystem,
+    );
+
+    await orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'write the code' }]), 'proj-1');
+
+    expect(fileSystem.saved[0]?.files).toEqual([{ path: 'partial.txt', content: 'partial work' }]);
   });
 });

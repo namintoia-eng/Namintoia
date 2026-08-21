@@ -7,6 +7,7 @@ import type {
   IntelligenceProvider,
   SandboxOutputChunk,
 } from '@namintoia/naminto-core';
+import { PROJECT_WORKING_DIRECTORY } from '@namintoia/naminto-core';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -42,6 +43,16 @@ export abstract class ShellScriptAgent implements Agent {
       throw new Error(`${this.role} agent: model returned an empty script for this task.`);
     }
 
+    // Every agent shares one project directory across the whole Plan run
+    // (PROJECT_WORKING_DIRECTORY) so the Agent Orchestrator can capture a
+    // consistent file tree afterward (DECISIONS.md D-12) — ensure it exists
+    // before running a script that assumes it (mkdir -p is a no-op if it's
+    // already there from an earlier task in the same session).
+    await context.sandboxSession.execute({
+      command: 'mkdir',
+      args: ['-p', PROJECT_WORKING_DIRECTORY],
+    });
+
     const output: string[] = [];
     const onOutput = (chunk: SandboxOutputChunk): void => {
       if (chunk.stream === 'stdout' || chunk.stream === 'stderr') {
@@ -53,6 +64,7 @@ export abstract class ShellScriptAgent implements Agent {
       {
         command: 'sh',
         args: ['-c', script],
+        workingDirectory: PROJECT_WORKING_DIRECTORY,
         limits: { maxWallClockMs: this.timeoutMs },
       },
       onOutput,

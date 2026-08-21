@@ -17,6 +17,12 @@ function fakeContext(exitCode: number | null, timedOut = false): AgentRunContext
     async execute() {
       return { exitCode, timedOut, durationMs: 5 };
     },
+    async listFiles() {
+      return [];
+    },
+    async readFile() {
+      return '';
+    },
     async close() {},
   };
   return { sandboxSession: session };

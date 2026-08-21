@@ -3,14 +3,21 @@ import { Test } from '@nestjs/testing';
 import type {
   AgentOrchestrator,
   ConversationTurn,
+  FileSystem,
   MemoryStore,
   NewConversationTurn,
   OrchestrationResult,
   Plan,
+  ProjectFile,
   ReasoningEngine,
 } from '@namintoia/naminto-core';
 import { describe, expect, it } from 'vitest';
-import { AGENT_ORCHESTRATOR, MEMORY_STORE, REASONING_ENGINE } from '../naminto-core/naminto-core.module';
+import {
+  AGENT_ORCHESTRATOR,
+  FILE_SYSTEM,
+  MEMORY_STORE,
+  REASONING_ENGINE,
+} from '../naminto-core/naminto-core.module';
 import { PlanController } from './plan.controller';
 
 const FAKE_PLAN: Plan = {
@@ -48,10 +55,29 @@ function fakeMemoryStore(): MemoryStore & { saved: NewConversationTurn[] } {
   };
 }
 
+function fakeFileSystem(): FileSystem & { saved: { projectId: string; files: ProjectFile[] }[] } {
+  const saved: { projectId: string; files: ProjectFile[] }[] = [];
+  return {
+    name: 'fake-file-system',
+    saved,
+    async saveProjectFiles(projectId: string, files: ProjectFile[]) {
+      saved.push({ projectId, files });
+    },
+    async listProjectFiles(projectId: string) {
+      const match = saved.filter((s) => s.projectId === projectId).at(-1);
+      return match ? match.files.map((f) => f.path) : [];
+    },
+    async readProjectFile() {
+      return '';
+    },
+  };
+}
+
 async function buildController(
   reasoningEngine: Partial<ReasoningEngine>,
   orchestrator: Partial<AgentOrchestrator>,
   memory: MemoryStore = fakeMemoryStore(),
+  fileSystem: FileSystem = fakeFileSystem(),
 ): Promise<PlanController> {
   const moduleRef = await Test.createTestingModule({
     controllers: [PlanController],
@@ -59,6 +85,7 @@ async function buildController(
       { provide: REASONING_ENGINE, useValue: reasoningEngine },
       { provide: AGENT_ORCHESTRATOR, useValue: orchestrator },
       { provide: MEMORY_STORE, useValue: memory },
+      { provide: FILE_SYSTEM, useValue: fileSystem },
     ],
   }).compile();
 
@@ -121,6 +148,24 @@ describe('PlanController', () => {
 
     expect(history.projectId).toBe('proj-1');
     expect(history.turns).toHaveLength(2);
+  });
+
+  it('returns a project\'s captured files via GET', async () => {
+    const fileSystem = fakeFileSystem();
+    const controller = await buildController(
+      { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
+      { run: async () => FAKE_RESULT },
+      fakeMemoryStore(),
+      fileSystem,
+    );
+    fileSystem.saved.push({
+      projectId: 'proj-1',
+      files: [{ path: 'hello.txt', content: 'hi' }],
+    });
+
+    const files = await controller.files('proj-1');
+
+    expect(files).toEqual({ projectId: 'proj-1', files: ['hello.txt'] });
   });
 
   it('rejects a request without an intent field', async () => {

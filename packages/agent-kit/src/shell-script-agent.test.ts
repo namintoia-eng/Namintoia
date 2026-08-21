@@ -36,6 +36,12 @@ function fakeContext(
       }
       return result;
     },
+    async listFiles() {
+      return [];
+    },
+    async readFile() {
+      return '';
+    },
     async close() {},
   };
   return { sandboxSession: session, session };

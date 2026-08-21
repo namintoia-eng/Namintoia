@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   SandboxCommandRequest,
   SandboxExecutionResult,
+  SandboxFileEntry,
   SandboxOutputChunk,
   SandboxProvider,
   SandboxSession,
@@ -78,6 +79,24 @@ class E2bSandboxSession implements SandboxSession {
       }
       throw error;
     }
+  }
+
+  async listFiles(directory: string): Promise<SandboxFileEntry[]> {
+    // The installed e2b SDK (2.x) rejects depth < 1 — the "recursive means
+    // -1" behavior from older SDK docs doesn't apply here (found live: the
+    // real call throws InvalidArgumentError). A large finite depth is the
+    // practical equivalent of "recursive" for a generated project's file tree.
+    const entries = await this.sandbox.files.list(directory, { depth: 100 });
+    return entries
+      .filter((entry) => entry.type === 'file' || entry.type === 'dir')
+      .map((entry) => ({
+        path: entry.path,
+        type: entry.type === 'dir' ? 'directory' : 'file',
+      }));
+  }
+
+  async readFile(path: string): Promise<string> {
+    return this.sandbox.files.read(path);
   }
 
   async close(): Promise<void> {

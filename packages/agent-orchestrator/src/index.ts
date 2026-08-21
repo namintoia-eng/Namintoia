@@ -4,11 +4,14 @@ import type {
   AgentRole,
   AgentTask,
   AgentTaskResult,
+  FileSystem,
   OrchestrationResult,
   Plan,
+  ProjectFile,
   SandboxProvider,
   SandboxSession,
 } from '@namintoia/naminto-core';
+import { PROJECT_WORKING_DIRECTORY } from '@namintoia/naminto-core';
 
 const DEFAULT_MAX_DEBUG_ATTEMPTS = 3;
 
@@ -22,13 +25,16 @@ export interface SequentialAgentOrchestratorOptions {
  * agent at a time (DECISIONS.md D-2 — sequential only, not parallel, for
  * the MVP). Owns a single SandboxSession for the whole Plan run
  * (DECISIONS.md D-11) — every task shares the same file tree instead of
- * each starting from an empty sandbox — and always closes it, success or
- * failure. When a task fails and a 'debug' agent is registered, hands the
- * failure to it for a bounded number of retry attempts (debug-agent.md)
- * instead of giving up immediately or looping forever; still stops and
- * surfaces the full attempt history if the debug agent can't fix it either.
- * With no 'debug' agent registered, behavior is unchanged: stop at the
- * first failure.
+ * each starting from an empty sandbox. Before closing that session (success,
+ * failure, or a thrown error), captures whatever ended up in
+ * PROJECT_WORKING_DIRECTORY into the FileSystem (DECISIONS.md D-12) — the
+ * sandbox itself is about to be destroyed, so this is the only chance to
+ * keep the files. When a task fails and a 'debug' agent is registered,
+ * hands the failure to it for a bounded number of retry attempts
+ * (debug-agent.md) instead of giving up immediately or looping forever;
+ * still stops and surfaces the full attempt history if the debug agent
+ * can't fix it either. With no 'debug' agent registered, behavior is
+ * unchanged: stop at the first failure.
  */
 export class SequentialAgentOrchestrator implements AgentOrchestrator {
   private readonly maxDebugAttempts: number;
@@ -36,6 +42,7 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
   constructor(
     private readonly agents: Map<AgentRole, Agent>,
     private readonly sandbox: SandboxProvider,
+    private readonly fileSystem: FileSystem,
     options: SequentialAgentOrchestratorOptions = {},
   ) {
     this.maxDebugAttempts = options.maxDebugAttempts ?? DEFAULT_MAX_DEBUG_ATTEMPTS;
@@ -66,7 +73,11 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
 
       return { plan, results, success: true };
     } finally {
-      await session.close();
+      try {
+        await this.captureFiles(session, projectId);
+      } finally {
+        await session.close();
+      }
     }
   }
 
@@ -104,6 +115,26 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
 
     return latest;
   }
+
+  private async captureFiles(session: SandboxSession, projectId: string): Promise<void> {
+    const entries = await session.listFiles(PROJECT_WORKING_DIRECTORY);
+    const files: ProjectFile[] = [];
+
+    for (const entry of entries) {
+      if (entry.type !== 'file') {
+        continue;
+      }
+      const content = await session.readFile(entry.path);
+      files.push({ path: toProjectRelativePath(entry.path), content });
+    }
+
+    await this.fileSystem.saveProjectFiles(projectId, files);
+  }
+}
+
+function toProjectRelativePath(absolutePath: string): string {
+  const prefix = `${PROJECT_WORKING_DIRECTORY}/`;
+  return absolutePath.startsWith(prefix) ? absolutePath.slice(prefix.length) : absolutePath;
 }
 
 function buildDebugInstruction(

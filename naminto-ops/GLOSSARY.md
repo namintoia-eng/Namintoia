@@ -28,6 +28,8 @@
 | **BackendProvider** | Interface d'abstraction du backend par défaut des applications générées pour les utilisateurs finaux (base de données, authentification, stockage, temps réel) — jamais câblée en dur sur un fournisseur unique. Voir `STACK.md`. |
 | **MemoryStore** | Interface d'abstraction du Memory System : persiste et relit les `ConversationTurn` d'un projet. Implémentation MVP par défaut : `FileMemoryStore` (un fichier JSON par projet, aucune base de données requise, `DECISIONS.md` D-2). |
 | **ConversationTurn** | Un échange complet capturé par le Memory System : intention utilisateur → `Plan` produit par le Reasoning Engine → `OrchestrationResult` produit par l'Agent Orchestrator, horodaté. |
+| **FileSystem** | Interface d'abstraction du File System : sauvegarde et relit les `ProjectFile` d'un projet une fois le sandbox de la session détruit. Implémentation MVP par défaut : `LocalFileSystem` (un dossier local par projet, `DECISIONS.md` D-12). |
+| **ProjectFile** | Un fichier capturé depuis le `SandboxSession` d'un `Plan` à la fin de son exécution — chemin relatif à `PROJECT_WORKING_DIRECTORY`, plus son contenu. |
 | **Vibecoding** | Le mode de travail employé pour *construire* Naminto IA lui-même : un agent IA outillé (ce kit) qui code de façon itérative, testée et documentée. À ne pas confondre avec le produit final. |
 
 ## Règle de gouvernance du glossaire

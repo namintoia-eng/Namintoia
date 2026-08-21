@@ -2,12 +2,18 @@ import { BadRequestException, Body, Controller, Get, Inject, Param, Post } from 
 import type {
   AgentOrchestrator,
   ConversationTurn,
+  FileSystem,
   MemoryStore,
   OrchestrationResult,
   Plan,
   ReasoningEngine,
 } from '@namintoia/naminto-core';
-import { AGENT_ORCHESTRATOR, MEMORY_STORE, REASONING_ENGINE } from '../naminto-core/naminto-core.module';
+import {
+  AGENT_ORCHESTRATOR,
+  FILE_SYSTEM,
+  MEMORY_STORE,
+  REASONING_ENGINE,
+} from '../naminto-core/naminto-core.module';
 
 const DEFAULT_PROJECT_ID = 'default';
 
@@ -22,12 +28,18 @@ interface ProjectHistoryResponse {
   turns: ConversationTurn[];
 }
 
+interface ProjectFilesResponse {
+  projectId: string;
+  files: string[];
+}
+
 @Controller('plan')
 export class PlanController {
   constructor(
     @Inject(REASONING_ENGINE) private readonly reasoningEngine: ReasoningEngine,
     @Inject(AGENT_ORCHESTRATOR) private readonly orchestrator: AgentOrchestrator,
     @Inject(MEMORY_STORE) private readonly memory: MemoryStore,
+    @Inject(FILE_SYSTEM) private readonly fileSystem: FileSystem,
   ) {}
 
   @Post()
@@ -43,6 +55,12 @@ export class PlanController {
   async history(@Param('projectId') projectId: string): Promise<ProjectHistoryResponse> {
     const turns = await this.memory.listTurns(projectId);
     return { projectId, turns };
+  }
+
+  @Get(':projectId/files')
+  async files(@Param('projectId') projectId: string): Promise<ProjectFilesResponse> {
+    const files = await this.fileSystem.listProjectFiles(projectId);
+    return { projectId, files };
   }
 }
 

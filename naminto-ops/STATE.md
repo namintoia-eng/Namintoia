@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session correctif SandboxProvider (D-11), avant le File System — audit a révélé que chaque tâche d'un `Plan` démarrait dans un sandbox E2B **vide et isolé** (créé/détruit par appel), donc un `Testing Agent` ne pouvait jamais voir les fichiers écrits juste avant par le `Coding Agent` : le pipeline multi-tâches était cassé silencieusement, jamais démontré au-delà d'une seule tâche jusqu'ici. Corrigé : `SandboxProvider.execute()` → `SandboxProvider.createSession(projectId)`, une session E2B unique partagée par toutes les tâches d'un `Plan` (possédée par `SequentialAgentOrchestrator`, fermée dans un `finally`). `Agent.run()` prend désormais un `AgentRunContext` portant la session ; les agents n'ont plus leur propre référence sandbox. **Deuxième bug trouvé en vérifiant ce correctif contre un vrai sandbox E2B (pas un mock)** : l'ancien assemblage naïf `[command, ...args].join(' ')` corrompait tout script généré contenant des guillemets/redirections — corrigé par un échappement shell POSIX standard, revérifié en conditions réelles après correction (fichier écrit par une étape, relu correctement par la suivante, dans la même session). `npm run lint`, `typecheck`, `test` (32/32) et `build` passent tous.
+- Par : session File System (D-12) — nouveau contrat `FileSystem`/`ProjectFile` dans `packages/naminto-core`, plus une constante partagée `PROJECT_WORKING_DIRECTORY` que tous les agents (`agent-kit`) utilisent comme dossier de travail dans le sandbox. `SandboxSession` gagne `listFiles()`/`readFile()`. `SequentialAgentOrchestrator` capture désormais tous les fichiers du sandbox **avant** de fermer la session en fin de run (succès, échec, ou exception) et les sauvegarde via `FileSystem.saveProjectFiles()` — sinon ils disparaissaient avec le sandbox détruit. Implémentation par défaut `LocalFileSystem` (`packages/file-system`) : un dossier local par projet, protection anti-traversée de chemin, remplace l'instantané précédent à chaque run (pas de fusion — cohérent avec l'absence de reprise de session). Nouvel endpoint `GET /plan/:projectId/files`. **Bug trouvé en vérifiant contre un vrai sandbox E2B** : la doc SDK consultée disait `depth: -1` pour un listing récursif illimité, mais le SDK réellement installé (`e2b@2.45.0`) rejette `depth < 1` — corrigé avec `depth: 100`. Vérifié en conditions réelles de bout en bout : plan exécuté contre un vrai sandbox E2B (écrit `hello.txt` + `src/index.ts`), sandbox détruit, fichiers retrouvés intacts sur disque via `LocalFileSystem` après coup. `npm run lint`, `typecheck`, `test` (38/38) et `build` passent tous.
 
 ## Phase actuelle
 
-**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est complet et le pipeline multi-tâches est maintenant réellement cohérent** (D-11) — condition préalable posée par l'utilisateur avant d'attaquer le File System. Prochaine étape : le File System lui-même (capturer les fichiers du sandbox partagé à la fin d'un `Plan`, puisqu'ils survivent maintenant le temps du run). Restent hors scope tant que non demandés : User System — et la vérification en conditions réelles complète du pipeline une fois le crédit Anthropic disponible.
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant complet dans son intégralité** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (correction bornée + session sandbox partagée), Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User Interface de chat — tout vérifié en conditions réelles, pas seulement via des tests. Restent hors scope tant que non demandés : User System — et la vérification finale du pipeline complet (chat → Reasoning Engine → agents) une fois du crédit Anthropic disponible (aujourd'hui seul le Coding Agent a été testé en réel avec une intelligence factice, le Reasoning Engine lui-même n'a pas encore tourné en conditions réelles faute de crédit).
 
 ## Ce qui existe
 
@@ -29,7 +29,7 @@
 - [x] Debug Agent — `DebugAgent` (`packages/debug-agent`), diagnostique et corrige une tâche en échec, invoqué par l'orchestrateur en boucle bornée à 3 tentatives (`debug-agent.md`, D-9)
 - [x] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché) — E2B, D-8
 - [x] Memory System — `MemoryStore`/`ConversationTurn` (`packages/naminto-core`), `FileMemoryStore` (`packages/memory-system`), câblé dans `apps/api` (`POST /plan` sauvegarde, `GET /plan/:projectId` relit) ; persistance simple par fichier, pas encore de recherche sémantique (MVP, D-2)
-- [ ] File System (MVP)
+- [x] File System — `FileSystem`/`ProjectFile` (`packages/naminto-core`), `LocalFileSystem` (`packages/file-system`), capture automatique par l'orchestrateur à la fin de chaque `Plan` (D-12), `GET /plan/:projectId/files`
 - [ ] User System (MVP, authentification simple)
 - [x] User Interface — chat d'intention minimal (`apps/web/app/page.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
 - [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration
@@ -47,8 +47,8 @@
 6. ~~Testing Agent + Debug Agent~~ — fait (D-9), boucle de correction bornée à 3 tentatives dans l'orchestrateur.
 7. ~~Memory System~~ — fait, `FileMemoryStore` câblé sur `POST/GET /plan`.
 8. ~~Corriger le partage de sandbox entre les tâches d'un même Plan~~ — fait (D-11), vérifié en conditions réelles contre E2B.
-9. File System — capturer les fichiers du sandbox partagé à la fin d'un `Plan` pour qu'ils survivent à la fermeture de la session (le sandbox est détruit dans le `finally` de l'orchestrateur).
-10. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible.
+9. ~~File System~~ — fait (D-12), vérifié en conditions réelles contre E2B (fichiers écrits, sandbox détruit, fichiers relus intacts).
+10. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — dernière vérification en conditions réelles manquante pour le périmètre MVP D-2.
 11. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : User System.
 
 ## Blocages / questions ouvertes

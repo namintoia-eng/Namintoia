@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const commandsRun = vi.fn();
 const kill = vi.fn();
+const filesList = vi.fn();
+const filesRead = vi.fn();
 const sandboxCreate = vi.fn(async () => ({
   commands: { run: commandsRun },
+  files: { list: filesList, read: filesRead },
   kill,
 }));
 
@@ -17,6 +20,8 @@ describe('E2bSandboxProvider', () => {
   afterEach(() => {
     commandsRun.mockReset();
     kill.mockReset();
+    filesList.mockReset();
+    filesRead.mockReset();
     sandboxCreate.mockClear();
   });
 
@@ -85,6 +90,34 @@ describe('E2bSandboxProvider', () => {
     const result = await session.execute({ command: 'sleep', args: ['999'] });
 
     expect(result).toEqual(expect.objectContaining({ exitCode: null, timedOut: true }));
+  });
+
+  it('lists files, mapping E2B entry types to file/directory', async () => {
+    filesList.mockResolvedValueOnce([
+      { name: 'a.txt', path: '/home/user/project/a.txt', type: 'file' },
+      { name: 'sub', path: '/home/user/project/sub', type: 'dir' },
+    ]);
+    const provider = new E2bSandboxProvider({ apiKey: 'test-key' });
+    const session = await provider.createSession('p1');
+
+    const entries = await session.listFiles('/home/user/project');
+
+    expect(filesList).toHaveBeenCalledWith('/home/user/project', { depth: 100 });
+    expect(entries).toEqual([
+      { path: '/home/user/project/a.txt', type: 'file' },
+      { path: '/home/user/project/sub', type: 'directory' },
+    ]);
+  });
+
+  it('reads a file by path', async () => {
+    filesRead.mockResolvedValueOnce('hello from the sandbox');
+    const provider = new E2bSandboxProvider({ apiKey: 'test-key' });
+    const session = await provider.createSession('p1');
+
+    const content = await session.readFile('/home/user/project/a.txt');
+
+    expect(filesRead).toHaveBeenCalledWith('/home/user/project/a.txt');
+    expect(content).toBe('hello from the sandbox');
   });
 
   it('kills the underlying E2B sandbox when close() is called', async () => {

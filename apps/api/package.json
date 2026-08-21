@@ -15,6 +15,7 @@
     "@namintoia/backend-selfhosted": "*",
     "@namintoia/coding-agent": "*",
     "@namintoia/debug-agent": "*",
+    "@namintoia/file-system": "*",
     "@namintoia/intelligence-anthropic": "*",
     "@namintoia/intelligence-openai": "*",
     "@namintoia/memory-system": "*",
