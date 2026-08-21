@@ -15,6 +15,8 @@ export type { ConversationTurn, MemoryStore, NewConversationTurn } from './memor
 
 export type { FileSystem, ProjectFile } from './file-system.js';
 
+export type { Session, User, UserSystem } from './user-system.js';
+
 export { PROJECT_WORKING_DIRECTORY } from './constants.js';
 
 export type {

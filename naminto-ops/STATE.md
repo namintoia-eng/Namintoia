@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session File System (D-12) — nouveau contrat `FileSystem`/`ProjectFile` dans `packages/naminto-core`, plus une constante partagée `PROJECT_WORKING_DIRECTORY` que tous les agents (`agent-kit`) utilisent comme dossier de travail dans le sandbox. `SandboxSession` gagne `listFiles()`/`readFile()`. `SequentialAgentOrchestrator` capture désormais tous les fichiers du sandbox **avant** de fermer la session en fin de run (succès, échec, ou exception) et les sauvegarde via `FileSystem.saveProjectFiles()` — sinon ils disparaissaient avec le sandbox détruit. Implémentation par défaut `LocalFileSystem` (`packages/file-system`) : un dossier local par projet, protection anti-traversée de chemin, remplace l'instantané précédent à chaque run (pas de fusion — cohérent avec l'absence de reprise de session). Nouvel endpoint `GET /plan/:projectId/files`. **Bug trouvé en vérifiant contre un vrai sandbox E2B** : la doc SDK consultée disait `depth: -1` pour un listing récursif illimité, mais le SDK réellement installé (`e2b@2.45.0`) rejette `depth < 1` — corrigé avec `depth: 100`. Vérifié en conditions réelles de bout en bout : plan exécuté contre un vrai sandbox E2B (écrit `hello.txt` + `src/index.ts`), sandbox détruit, fichiers retrouvés intacts sur disque via `LocalFileSystem` après coup. `npm run lint`, `typecheck`, `test` (38/38) et `build` passent tous.
+- Par : session User System (D-13) — nouveau contrat `UserSystem`/`User`/`Session` dans `packages/naminto-core`. Implémentation par défaut `LocalUserSystem` (`packages/user-system`) : comptes/sessions en fichier local (même patron que Memory/File System), mots de passe hashés `scrypt` (jamais en clair), jetons de session opaques (pas de JWT maison, écart documenté face à `STACK.md`), expiration 7 jours, comparaison `timingSafeEqual`, message d'erreur générique pour "email inconnu" vs "mauvais mot de passe" (pas d'énumération d'utilisateurs). Endpoints `apps/api` : `POST /auth/register`, `POST /auth/login`, `GET /auth/me`. **Décision confirmée avec l'utilisateur : `/plan` et le chat restent accessibles sans compte pour l'instant** — brancher l'auth dessus est un chantier séparé, pas encore demandé. Vérifié en conditions réelles : serveur démarré, flux complet register (201) → doublon rejeté (409) → mauvais mot de passe rejeté (401) → login → `/auth/me` avec jeton (200) → sans en-tête (401), et inspection directe du fichier `users.json` confirmant l'absence de mot de passe en clair. `npm run lint`, `typecheck`, `test` et `build` passent tous (18/18 tâches build, 20 tests sur `apps/api` dont l'auth).
 
 ## Phase actuelle
 
-**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant complet dans son intégralité** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (correction bornée + session sandbox partagée), Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User Interface de chat — tout vérifié en conditions réelles, pas seulement via des tests. Restent hors scope tant que non demandés : User System — et la vérification finale du pipeline complet (chat → Reasoning Engine → agents) une fois du crédit Anthropic disponible (aujourd'hui seul le Coding Agent a été testé en réel avec une intelligence factice, le Reasoning Engine lui-même n'a pas encore tourné en conditions réelles faute de crédit).
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant intégralement complet**, User System inclus : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (correction bornée + session sandbox partagée), Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User System, User Interface de chat — tout vérifié en conditions réelles. Il ne reste que la vérification finale du pipeline complet (chat → Reasoning Engine → agents) une fois du crédit Anthropic disponible (aujourd'hui seul le Coding Agent a été testé en réel avec une intelligence factice, le Reasoning Engine lui-même n'a pas encore tourné en conditions réelles faute de crédit) — et, hors périmètre MVP D-2, brancher l'auth sur `/plan`/le chat, à décider avec l'utilisateur si souhaité.
 
 ## Ce qui existe
 
@@ -30,7 +30,7 @@
 - [x] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché) — E2B, D-8
 - [x] Memory System — `MemoryStore`/`ConversationTurn` (`packages/naminto-core`), `FileMemoryStore` (`packages/memory-system`), câblé dans `apps/api` (`POST /plan` sauvegarde, `GET /plan/:projectId` relit) ; persistance simple par fichier, pas encore de recherche sémantique (MVP, D-2)
 - [x] File System — `FileSystem`/`ProjectFile` (`packages/naminto-core`), `LocalFileSystem` (`packages/file-system`), capture automatique par l'orchestrateur à la fin de chaque `Plan` (D-12), `GET /plan/:projectId/files`
-- [ ] User System (MVP, authentification simple)
+- [x] User System — `UserSystem`/`User`/`Session` (`packages/naminto-core`), `LocalUserSystem` (`packages/user-system`, D-13), `POST /auth/register`, `POST /auth/login`, `GET /auth/me` ; `/plan` et le chat restent volontairement non protégés pour l'instant
 - [x] User Interface — chat d'intention minimal (`apps/web/app/page.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
 - [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration
 
@@ -48,8 +48,9 @@
 7. ~~Memory System~~ — fait, `FileMemoryStore` câblé sur `POST/GET /plan`.
 8. ~~Corriger le partage de sandbox entre les tâches d'un même Plan~~ — fait (D-11), vérifié en conditions réelles contre E2B.
 9. ~~File System~~ — fait (D-12), vérifié en conditions réelles contre E2B (fichiers écrits, sandbox détruit, fichiers relus intacts).
-10. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — dernière vérification en conditions réelles manquante pour le périmètre MVP D-2.
-11. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : User System.
+10. ~~User System~~ — fait (D-13), module autonome vérifié en conditions réelles, pas branché sur `/plan`/le chat (décision explicite).
+11. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — dernière vérification en conditions réelles manquante pour le périmètre MVP D-2, maintenant intégralement complet.
+12. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer) : brancher l'authentification sur `/plan`/le chat + écran de connexion sur `apps/web`.
 
 ## Blocages / questions ouvertes
 

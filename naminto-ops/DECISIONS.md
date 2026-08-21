@@ -183,4 +183,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** `apps/api` : nouvel endpoint `GET /plan/:projectId/files` liste les fichiers capturés. Le jour où les sessions sandbox pourront reprendre un état antérieur (hors scope actuel), `saveProjectFiles` en mode "remplacement" devra être revisité pour éviter de perdre des fichiers d'un run précédent que le nouveau run n'a pas touchés.
 
+### D-13 — User System : compte simple fichier, pas encore OAuth2/OIDC (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** Dernière brique MVP listée en `DECISIONS.md` D-2 : "User System minimal (authentification simple)". `STACK.md` visait OAuth2/OIDC + JWT, mais aucune infrastructure d'identité externe n'est provisionnée — même limite que `BackendProvider` (D-4). L'utilisateur a confirmé un périmètre borné : un module autonome, testé et vérifié en conditions réelles, **sans** brancher l'authentification sur `/plan` ni sur le chat pour l'instant (chantier séparé, décidé plus tard).
+
+**Décision :** Nouveau contrat `UserSystem`/`User`/`Session` dans `packages/naminto-core`. Implémentation par défaut `LocalUserSystem` (`packages/user-system`), même patron fichier que `FileMemoryStore`/`LocalFileSystem` : comptes et sessions dans `.naminto/users/{users,sessions}.json`, écritures sérialisées par une file d'attente en mémoire. Mots de passe hashés avec `node:crypto` **scrypt** (sel aléatoire par utilisateur, jamais stocké en clair) — pas de dépendance externe (bcrypt). Jetons de session **opaques** (`randomUUID()`), pas de JWT auto-signé — évite les pièges classiques d'une implémentation JWT maison pour un MVP ; expiration à 7 jours. `authenticate()` renvoie le même message générique pour "email inconnu" et "mauvais mot de passe" (pas d'énumération d'utilisateurs), et compare les hashes avec `crypto.timingSafeEqual`. Endpoints `apps/api` : `POST /auth/register`, `POST /auth/login`, `GET /auth/me` — `/plan` reste inchangé, toujours accessible sans compte.
+
+**Alternatives envisagées :** JWT auto-signé plutôt que jeton opaque (rejeté pour le MVP : un JWT maison ajoute une surface d'erreurs classiques — vérification d'algorithme, expiration, révocation — sans bénéfice réel tant qu'il n'y a qu'un seul serveur API à consulter la session ; un jeton opaque vérifié côté serveur est plus simple et au moins aussi sûr ici). Attendre une vraie infra OAuth2/OIDC avant de commencer (rejeté : même raisonnement que D-10/D-12, ne pas bloquer le MVP sur une infra non provisionnée).
+
+**Conséquences :** Le contrat `UserSystem` reste stable pour un futur fournisseur OAuth2/OIDC réel — seule l'implémentation change le jour venu. Aucune association projet ↔ utilisateur pour l'instant (`/plan` continue d'utiliser un `projectId` libre, pas un compte) ; brancher l'auth sur `/plan` et ajouter un écran de connexion sur `apps/web` restent des chantiers explicitement hors de cette décision.
+
+<!-- Prochaine entrée : D-14 -->
+
 <!-- Prochaine entrée : D-13 -->
