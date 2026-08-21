@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session SandboxProvider — étude comparative (E2B/Daytona/Modal/Vercel Sandbox), décision **D-8 : E2B** retenu (microVM Firecracker, SDK TS natif, palier gratuit). `packages/providers/sandbox-e2b` créé et câblé comme `SandboxProvider` par défaut dans `apps/api` (remplace `sandbox-stub`, qui reste dans le dépôt mais n'est plus utilisé). `npm run lint`, `typecheck`, `test` (17/17) et `build` passent tous. Commit + push faits automatiquement (accord utilisateur "à chaque fois").
+- Par : session Coding Agent — `packages/coding-agent` créé : `CodingAgent` transforme une `AgentTask` en script shell via un `IntelligenceProvider`, l'exécute dans un `SandboxProvider`, et décide du succès **uniquement** sur le code de sortie du sandbox (jamais sur ce que le modèle prétend avoir fait — principe NAMINTO.md : "le modèle dit que c'est fait" n'est jamais une preuve). Testé via doublures (`IntelligenceProvider`/`SandboxProvider` factices) : succès, échec (exit non-zéro), timeout, et un cas explicite où le script prétend avoir réussi en prose mais sort en erreur. `npm run lint`, `typecheck`, `test` (18/18) et `build` passent tous. Pas encore branché sur `apps/api` (voir étape 5 ci-dessous) ni testé avec une vraie clé `E2B_API_KEY`/`ANTHROPIC_API_KEY`.
 
 ## Phase actuelle
 
-**Étapes 1-3b de la "Prochaine étape recommandée" ci-dessous : faites, plus le choix du fournisseur `SandboxProvider` (D-8).** Reste : implémenter le Coding Agent lui-même (étape 4) — le seul prérequis restant est une vraie clé `E2B_API_KEY` pour le tester en conditions réelles, plus brancher Reasoning Engine + Agent Orchestrator + User Interface bout-en-bout (étape 5).
+**Étapes 1-4 de la "Prochaine étape recommandée" ci-dessous : faites.** Reste : brancher Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api` et une User Interface pour une démo bout-en-bout réelle (étape 5) — et, en parallèle, obtenir de vraies clés API pour vérifier tout ça en conditions réelles plutôt que via doublures.
 
 ## Ce qui existe
 
@@ -23,7 +23,7 @@
 - [x] Naminto Core — squelette de coordination (`packages/naminto-core/src/core.ts`) + les 4 interfaces Provider (MVP), chacune avec un adaptateur par défaut : `intelligence-anthropic` (défaut), `intelligence-openai` (2ᵉ adaptateur, D-5), `sandbox-e2b` (fournisseur nommé, D-8 — microVM Firecracker managé via E2B, lève une erreur de config explicite sans `E2B_API_KEY`), `backend-selfhosted` (contrat Postgres/GoTrue/PostgREST, D-4, pas encore d'infra réelle), `payment-stub` (D-6, Billing hors MVP)
 - [x] Reasoning Engine — `IntelligenceReasoningEngine` (`packages/reasoning-engine`), applique les étapes 1-5 de `WORKFLOW.md` via un `IntelligenceProvider`, valide manuellement la forme JSON de la réponse (pas de `Plan` silencieusement faux)
 - [x] Agent Orchestrator séquentiel — `SequentialAgentOrchestrator` (`packages/agent-orchestrator`), s'arrête au premier échec, erreur explicite si un rôle n'a pas d'agent enregistré
-- [ ] Coding Agent (MVP, pleinement implémenté)
+- [x] Coding Agent — `CodingAgent` (`packages/coding-agent`), spécification → script shell → exécution sandbox → succès basé sur le code de sortie réel, jamais sur la parole du modèle ; pas encore branché sur `apps/api` ni testé avec de vraies clés
 - [ ] Testing Agent (MVP, version minimale)
 - [ ] Debug Agent (MVP, boucle bornée à 3 tentatives)
 - [ ] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché)
@@ -40,8 +40,8 @@
 3. ~~Implémenter le second adaptateur `IntelligenceProvider`~~ — fait (`intelligence-openai`).
 3b. ~~Reasoning Engine + Agent Orchestrator~~ — fait (`packages/reasoning-engine`, `packages/agent-orchestrator`), testés via doublures, pas encore branchés sur une vraie clé API ni un vrai agent.
 3c. ~~Choisir un fournisseur `SandboxProvider` réel~~ — fait (D-8, E2B), `packages/providers/sandbox-e2b` câblé par défaut dans `apps/api`.
-4. Appliquer `WORKFLOW.md` à la première fonctionnalité concrète : le **Coding Agent** capable de transformer une spécification simple en code exécuté dans le sandbox et testé (boucle complète objectif → validation).
-5. Brancher le Reasoning Engine + Agent Orchestrator sur `apps/api` et une **User Interface** de chat pour obtenir une démonstration bout-en-bout du pitch (`CONTEXT.md`), une fois le Coding Agent (étape 4) prêt à recevoir des tâches.
+4. ~~Coding Agent~~ — fait (`packages/coding-agent`), testé via doublures ; reste à vérifier en conditions réelles une fois les clés API disponibles.
+5. Brancher le Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api` (un endpoint qui prend une intention, produit un `Plan`, l'exécute) et une **User Interface** de chat pour obtenir une démonstration bout-en-bout du pitch (`CONTEXT.md`).
 
 ## Blocages / questions ouvertes
 
