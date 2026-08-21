@@ -11,11 +11,14 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@namintoia/agent-orchestrator": "*",
     "@namintoia/backend-selfhosted": "*",
+    "@namintoia/coding-agent": "*",
     "@namintoia/intelligence-anthropic": "*",
     "@namintoia/intelligence-openai": "*",
     "@namintoia/naminto-core": "*",
     "@namintoia/payment-stub": "*",
+    "@namintoia/reasoning-engine": "*",
     "@namintoia/sandbox-e2b": "*",
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",

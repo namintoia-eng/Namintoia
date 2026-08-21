@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session Coding Agent — `packages/coding-agent` créé : `CodingAgent` transforme une `AgentTask` en script shell via un `IntelligenceProvider`, l'exécute dans un `SandboxProvider`, et décide du succès **uniquement** sur le code de sortie du sandbox (jamais sur ce que le modèle prétend avoir fait — principe NAMINTO.md : "le modèle dit que c'est fait" n'est jamais une preuve). Testé via doublures (`IntelligenceProvider`/`SandboxProvider` factices) : succès, échec (exit non-zéro), timeout, et un cas explicite où le script prétend avoir réussi en prose mais sort en erreur. `npm run lint`, `typecheck`, `test` (18/18) et `build` passent tous. Pas encore branché sur `apps/api` (voir étape 5 ci-dessous) ni testé avec une vraie clé `E2B_API_KEY`/`ANTHROPIC_API_KEY`.
+- Par : session API wiring — `POST /plan` ajouté sur `apps/api` (`src/plan/`) : prend `{ intent }`, appelle le Reasoning Engine puis l'Agent Orchestrator (avec le Coding Agent enregistré pour le rôle `coding`), renvoie `{ plan, result }`. `NamintoCoreModule` étendu pour dériver `ReasoningEngine`/`AgentOrchestrator` des mêmes instances de providers que `NamintoCore` (pas d'instances dupliquées). Validation manuelle du corps de requête (400 explicite si `intent` absent/vide), pas de nouvelle dépendance (pas de class-validator). Vérifié **en conditions réelles** : serveur démarré avec `.env` chargé, `curl` sur `/health` (200), `/plan` sans intent (400), `/plan` avec intent (500 — la requête atteint bien Anthropic, qui refuse faute de crédit, chaîne complète confirmée jusqu'au bout). `npm run lint`, `typecheck`, `test` (21/21) et `build` passent tous.
 
 ## Phase actuelle
 
-**Étapes 1-4 de la "Prochaine étape recommandée" ci-dessous : faites.** Reste : brancher Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api` et une User Interface pour une démo bout-en-bout réelle (étape 5) — et, en parallèle, obtenir de vraies clés API pour vérifier tout ça en conditions réelles plutôt que via doublures.
+**Étapes 1-5 (partie API) de la "Prochaine étape recommandée" ci-dessous : faites.** Reste : la **User Interface** de chat sur `apps/web` (actuellement une page statique) pour une démo bout-en-bout visible par un humain, et retester `/plan` en vrai une fois du crédit Anthropic disponible.
 
 ## Ce qui existe
 
@@ -23,7 +23,8 @@
 - [x] Naminto Core — squelette de coordination (`packages/naminto-core/src/core.ts`) + les 4 interfaces Provider (MVP), chacune avec un adaptateur par défaut : `intelligence-anthropic` (défaut), `intelligence-openai` (2ᵉ adaptateur, D-5), `sandbox-e2b` (fournisseur nommé, D-8 — microVM Firecracker managé via E2B, lève une erreur de config explicite sans `E2B_API_KEY`), `backend-selfhosted` (contrat Postgres/GoTrue/PostgREST, D-4, pas encore d'infra réelle), `payment-stub` (D-6, Billing hors MVP)
 - [x] Reasoning Engine — `IntelligenceReasoningEngine` (`packages/reasoning-engine`), applique les étapes 1-5 de `WORKFLOW.md` via un `IntelligenceProvider`, valide manuellement la forme JSON de la réponse (pas de `Plan` silencieusement faux)
 - [x] Agent Orchestrator séquentiel — `SequentialAgentOrchestrator` (`packages/agent-orchestrator`), s'arrête au premier échec, erreur explicite si un rôle n'a pas d'agent enregistré
-- [x] Coding Agent — `CodingAgent` (`packages/coding-agent`), spécification → script shell → exécution sandbox → succès basé sur le code de sortie réel, jamais sur la parole du modèle ; pas encore branché sur `apps/api` ni testé avec de vraies clés
+- [x] Coding Agent — `CodingAgent` (`packages/coding-agent`), spécification → script shell → exécution sandbox → succès basé sur le code de sortie réel, jamais sur la parole du modèle
+- [x] `apps/api` : `POST /plan` câble Reasoning Engine → Agent Orchestrator → Coding Agent bout en bout, vérifié en conditions réelles (voir ci-dessus)
 - [ ] Testing Agent (MVP, version minimale)
 - [ ] Debug Agent (MVP, boucle bornée à 3 tentatives)
 - [ ] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché)
@@ -40,13 +41,16 @@
 3. ~~Implémenter le second adaptateur `IntelligenceProvider`~~ — fait (`intelligence-openai`).
 3b. ~~Reasoning Engine + Agent Orchestrator~~ — fait (`packages/reasoning-engine`, `packages/agent-orchestrator`), testés via doublures, pas encore branchés sur une vraie clé API ni un vrai agent.
 3c. ~~Choisir un fournisseur `SandboxProvider` réel~~ — fait (D-8, E2B), `packages/providers/sandbox-e2b` câblé par défaut dans `apps/api`.
-4. ~~Coding Agent~~ — fait (`packages/coding-agent`), testé via doublures ; reste à vérifier en conditions réelles une fois les clés API disponibles.
-5. Brancher le Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api` (un endpoint qui prend une intention, produit un `Plan`, l'exécute) et une **User Interface** de chat pour obtenir une démonstration bout-en-bout du pitch (`CONTEXT.md`).
+4. ~~Coding Agent~~ — fait (`packages/coding-agent`).
+5a. ~~Brancher Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api`~~ — fait (`POST /plan`), vérifié en conditions réelles.
+5b. Une **User Interface** de chat sur `apps/web` (actuellement une page statique) qui appelle `POST /plan` et affiche le résultat — pour obtenir une démonstration bout-en-bout du pitch (`CONTEXT.md`) visible par un humain, pas seulement via `curl`.
 
 ## Blocages / questions ouvertes
 
 - ~~Accès au dépôt distant non débloqué~~ — résolu : authentification GitHub locale basculée sur le compte `namintoia-eng` (device-flow login), dépôt configuré pour toujours pousser avec ce compte.
-- Aucune clé réelle configurée (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `E2B_API_KEY`, `DATABASE_URL`, etc.) — attendu à ce stade (`.env.example` uniquement), mais bloque tout appel réel des adaptateurs `IntelligenceProvider`/`SandboxProvider`/`BackendProvider` tant que ce n'est pas fourni. Pour `E2B_API_KEY` spécifiquement : compte à créer sur e2b.dev (palier gratuit suffisant pour développer le Coding Agent, voir D-8).
+- `E2B_API_KEY` configurée dans `.env` local (non commité) et **vérifiée en conditions réelles** : sandbox créé/détruit avec succès (voir historique de session pour le détail).
+- `ANTHROPIC_API_KEY` configurée dans `.env` local (non commité), clé valide (authentification OK), mais **compte sans crédit** — Anthropic renvoie `"Your credit balance is too low to access the Anthropic API"` sur tout appel réel. Confirmé en testant directement contre l'API Anthropic (hors code Naminto), donc ce n'est pas un bug côté adaptateur. L'utilisateur sait qu'il doit acheter du crédit sur console.anthropic.com → Plans & Billing, mais a choisi de ne pas le faire tout de suite ("on y reviendra") — **pas un blocage à résoudre proactivement**, juste un état à retester quand le crédit sera ajouté.
+- `OPENAI_API_KEY`/`DATABASE_URL`/etc. toujours non configurées — attendu à ce stade.
 
 ## Comment mettre à jour ce fichier
 
