@@ -119,4 +119,16 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Toutes les commandes d'installation/exécution documentées utilisent `npm`, pas `pnpm`/`yarn`. Si un futur environnement a pnpm disponible et qu'il y a une raison de basculer (installs plus rapides, isolation plus stricte des dépendances), cette décision devra être révisée explicitement, pas mélangée silencieusement.
 
-<!-- Prochaine entrée : D-8 -->
+### D-8 — SandboxProvider : fournisseur nommé, E2B (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** D-3 avait acté la catégorie (fournisseur managé compatible microVM/Firecracker) sans nommer de fournisseur précis. Étude comparative menée (E2B, Daytona, Modal, Vercel Sandbox) sur isolation, démarrage à froid, support TypeScript, tarification et adéquation avec un Coding Agent MVP sans besoin GPU.
+
+**Décision :** `SandboxProvider` est branché sur **E2B** (`packages/providers/sandbox-e2b`) : isolation microVM Firecracker (noyau dédié par sandbox, correspond exactement à la cible de `STACK.md`), SDK TypeScript/ESM natif (`e2b`, cœur open-source MIT), palier gratuit (crédit initial + 20 sandbox simultanés/sessions 1h) suffisant pour développer et tester le Coding Agent avant tout coût réel. Un sandbox E2B est créé puis détruit à chaque exécution (jamais réutilisé entre requêtes), pour qu'un run raté ne puisse pas laisser d'état résiduel affecter le suivant.
+
+**Alternatives envisagées :** Daytona (rejeté comme défaut : isolation gVisor/conteneur, pas microVM — ne correspond pas à la cible déjà actée dans `STACK.md`, et bloque le GPU passthrough si jamais nécessaire plus tard). Modal (rejeté : tarifié pour des charges GPU, plus de 10× le coût vCPU d'E2B, alors que le Coding Agent MVP n'a besoin d'aucun GPU).
+
+**Conséquences :** `apps/api` câble désormais `E2bSandboxProvider` comme `SandboxProvider` par défaut de `NamintoCore`, à la place de `sandbox-stub`. Sans `E2B_API_KEY` configurée dans `.env`, l'adaptateur lève une erreur de configuration explicite au premier appel — aucun appel réseau réel tant qu'une clé n'est fournie (même garde-fou que les adaptateurs `IntelligenceProvider`). Le compte E2B et sa clé restent à créer par l'utilisateur (`naminto-ops/STATE.md` § Blocages).
+
+<!-- Prochaine entrée : D-9 -->
