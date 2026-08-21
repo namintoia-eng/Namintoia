@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session API wiring — `POST /plan` ajouté sur `apps/api` (`src/plan/`) : prend `{ intent }`, appelle le Reasoning Engine puis l'Agent Orchestrator (avec le Coding Agent enregistré pour le rôle `coding`), renvoie `{ plan, result }`. `NamintoCoreModule` étendu pour dériver `ReasoningEngine`/`AgentOrchestrator` des mêmes instances de providers que `NamintoCore` (pas d'instances dupliquées). Validation manuelle du corps de requête (400 explicite si `intent` absent/vide), pas de nouvelle dépendance (pas de class-validator). Vérifié **en conditions réelles** : serveur démarré avec `.env` chargé, `curl` sur `/health` (200), `/plan` sans intent (400), `/plan` avec intent (500 — la requête atteint bien Anthropic, qui refuse faute de crédit, chaîne complète confirmée jusqu'au bout). `npm run lint`, `typecheck`, `test` (21/21) et `build` passent tous.
+- Par : session User Interface — `apps/web` transformé de page statique en véritable chat d'intention : `app/page.tsx` (composant client) envoie `{ intent }` à `POST /plan` et affiche les 4 états requis (`design-agent.md`) — vide, chargement, erreur, succès (plan + résultat de chaque tâche). Type-safe via `@namintoia/naminto-core` (types `Plan`/`OrchestrationResult` réutilisés, pas dupliqués). **Bug réel trouvé et corrigé pendant la vérification live dans le navigateur** : CORS bloquait tout appel `localhost:3000` → `localhost:3001` (`app.enableCors()` ajouté dans `apps/api/src/main.ts`, origine lue depuis `APP_URL`). Vérifié en conditions réelles après correction : formulaire rempli et soumis dans un vrai navigateur, l'état d'erreur s'affiche correctement avec le message renvoyé par l'API (toujours bloqué sur le crédit Anthropic, mais la chaîne UI→API→Reasoning Engine→Anthropic est confirmée de bout en bout). **Point de configuration à retenir** : la racine de travail principale de cet outil de vibecoding est encore `D:\ADF\Naminto.AI` (l'ancien dépôt abandonné) — `.claude/launch.json` y a été cherché en premier par l'outil d'aperçu navigateur, lançant par erreur l'ancien site. Contournement : démarrer les serveurs manuellement (`npm run dev`) et attacher le navigateur via `url` plutôt que via un nom de config `.claude/launch.json`, tant que la racine de travail principale de l'outil pointe encore vers l'ancien dépôt. `npm run lint`, `typecheck`, `test` (26/26) et `build` passent tous.
 
 ## Phase actuelle
 
-**Étapes 1-5 (partie API) de la "Prochaine étape recommandée" ci-dessous : faites.** Reste : la **User Interface** de chat sur `apps/web` (actuellement une page statique) pour une démo bout-en-bout visible par un humain, et retester `/plan` en vrai une fois du crédit Anthropic disponible.
+**Le MVP minimal end-to-end tel que défini dans `DECISIONS.md` D-2 est maintenant démontrable** : chat → Reasoning Engine → Agent Orchestrator → Coding Agent → sandbox réel (E2B), avec deux blocages restants qui ne sont pas des bugs (voir « Blocages » ci-dessous) : crédit Anthropic et absence de Testing/Debug Agent.
 
 ## Ce qui existe
 
@@ -31,7 +31,7 @@
 - [ ] Memory System (MVP, persistance d'état simple, pas encore de recherche sémantique)
 - [ ] File System (MVP)
 - [ ] User System (MVP, authentification simple)
-- [ ] User Interface (MVP, chat d'intention + viewer en streaming)
+- [x] User Interface — chat d'intention minimal (`apps/web/app/page.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
 - [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration
 
 ## Prochaine étape recommandée
@@ -43,7 +43,9 @@
 3c. ~~Choisir un fournisseur `SandboxProvider` réel~~ — fait (D-8, E2B), `packages/providers/sandbox-e2b` câblé par défaut dans `apps/api`.
 4. ~~Coding Agent~~ — fait (`packages/coding-agent`).
 5a. ~~Brancher Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api`~~ — fait (`POST /plan`), vérifié en conditions réelles.
-5b. Une **User Interface** de chat sur `apps/web` (actuellement une page statique) qui appelle `POST /plan` et affiche le résultat — pour obtenir une démonstration bout-en-bout du pitch (`CONTEXT.md`) visible par un humain, pas seulement via `curl`.
+5b. ~~User Interface de chat sur `apps/web`~~ — fait, vérifiée en navigateur réel (et un bug CORS trouvé/corrigé au passage).
+6. Testing Agent + Debug Agent (MVP minimal, D-2) — pour boucler l'auto-correction plutôt que de s'arrêter au premier échec du Coding Agent.
+7. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible.
 
 ## Blocages / questions ouvertes
 
