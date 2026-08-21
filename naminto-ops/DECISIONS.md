@@ -209,4 +209,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Le flux anonyme démontré jusqu'ici (`POST /plan` sans compte) n'existe plus — un compte est désormais obligatoire pour tout le pipeline plan/chat. Le chargement de `ANTHROPIC_API_KEY` dans `apps/api` reste à corriger avant qu'une démo `/plan` bout-en-bout complète soit possible. Pas de vrai "Project System" (projets nommés, listés, renommables par utilisateur) — hors scope, à décider plus tard.
 
-<!-- Prochaine entrée : D-15 -->
+### D-15 — apps/api charge le .env racine explicitement via dotenv (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** Découvert en vérifiant D-14 en conditions réelles : `POST /plan` authentifié échouait avec `ANTHROPIC_API_KEY is not configured` alors que la clé est bien présente dans le `.env` racine (`.env.example` documente ce fichier comme source unique de vérité pour tous les providers). Cause : NestJS/`nest start` ne charge aucun fichier `.env` par défaut — contrairement à Next.js (`apps/web`) qui charge automatiquement `apps/web/.env.local`. Aucun `dotenv`/`ConfigModule` n'avait jamais été câblé dans `apps/api` ; les vérifications précédentes de `E2B_API_KEY`/`ANTHROPIC_API_KEY` avaient dû passer par des variables d'environnement exportées manuellement dans le shell, jamais par le vrai flux `npm run dev`.
+
+**Décision :** `apps/api/src/main.ts` charge désormais explicitement le `.env` racine via `dotenv` (`config({ path: resolve(__dirname, '../../../.env') })`), en tout premier — avant l'import d'`AppModule` — puisque les providers (`AnthropicIntelligenceProvider`, `E2bSandboxProvider`, etc.) lisent `process.env` dans leur constructeur, invoqué par Nest dès l'instanciation du module. `dotenv` ajouté comme dépendance directe de `apps/api` (pas `@nestjs/config` : un seul fichier à charger, pas de validation de schéma nécessaire pour l'instant — cohérent avec le principe de ne pas ajouter de dépendance non justifiée).
+
+**Vérification en conditions réelles :** log de démarrage confirme `injected env (10) from ..\..\.env` ; `POST /plan` authentifié échoue maintenant avec `AnthropicIntelligenceProvider: request failed with status 400` (un vrai appel réseau part avec la clé) au lieu de `ANTHROPIC_API_KEY is not configured` ; confirmé en appelant directement l'API Anthropic avec la même clé que la cause réelle est bien le blocage crédit déjà connu (`"Your credit balance is too low..."`), pas un problème de configuration.
+
+**Alternatives envisagées :** Dupliquer un `.env` local dans `apps/api/` (comme `apps/web/.env.local` le fait pour une seule valeur publique) — rejeté : dupliquer de vrais secrets (clés API) dans plusieurs fichiers non commités augmente le risque d'incohérence/désynchronisation sans bénéfice, alors qu'un seul fichier racine reste la source de vérité documentée par `.env.example`.
+
+**Conséquences :** Le blocage crédit Anthropic (déjà documenté, non résolu par choix de l'utilisateur) reste la seule chose empêchant une démo `/plan` bout-en-bout complète.
+
+<!-- Prochaine entrée : D-16 -->
