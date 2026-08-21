@@ -7,8 +7,14 @@ import type { SandboxProvider } from './providers/sandbox-provider.js';
 
 const fakeSandbox: SandboxProvider = {
   name: 'fake-sandbox',
-  async execute() {
-    return { exitCode: 0, timedOut: false, durationMs: 1 };
+  async createSession(projectId: string) {
+    return {
+      id: `${projectId}-session`,
+      async execute() {
+        return { exitCode: 0, timedOut: false, durationMs: 1 };
+      },
+      async close() {},
+    };
   },
 };
 

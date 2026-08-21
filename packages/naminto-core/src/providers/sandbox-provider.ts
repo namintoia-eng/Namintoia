@@ -5,8 +5,7 @@ export interface SandboxExecutionLimits {
   networkAccess?: 'none' | 'restricted' | 'full';
 }
 
-export interface SandboxExecutionRequest {
-  projectId: string;
+export interface SandboxCommandRequest {
   command: string;
   args?: string[];
   workingDirectory?: string;
@@ -25,13 +24,25 @@ export interface SandboxExecutionResult {
 }
 
 /**
+ * A single isolated environment that stays alive across multiple commands,
+ * so a Plan's tasks (coding, then testing, then a debug retry) all see the
+ * same file tree instead of each starting from an empty sandbox. Must be
+ * closed explicitly once the whole Plan finishes.
+ */
+export interface SandboxSession {
+  readonly id: string;
+  execute(
+    request: SandboxCommandRequest,
+    onOutput?: (chunk: SandboxOutputChunk) => void,
+  ): Promise<SandboxExecutionResult>;
+  close(): Promise<void>;
+}
+
+/**
  * Isolation boundary for any code Naminto executes on a user's behalf.
  * Default target: managed microVM/Firecracker-compatible provider (DECISIONS.md D-3).
  */
 export interface SandboxProvider {
   readonly name: string;
-  execute(
-    request: SandboxExecutionRequest,
-    onOutput?: (chunk: SandboxOutputChunk) => void,
-  ): Promise<SandboxExecutionResult>;
+  createSession(projectId: string): Promise<SandboxSession>;
 }

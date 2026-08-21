@@ -51,10 +51,11 @@ export const MEMORY_STORE = Symbol('MEMORY_STORE');
       useFactory: (core: NamintoCore) =>
         new SequentialAgentOrchestrator(
           new Map<AgentRole, Agent>([
-            ['coding', new CodingAgent(core.intelligence, core.sandbox)],
-            ['testing', new TestingAgent(core.intelligence, core.sandbox)],
-            ['debug', new DebugAgent(core.intelligence, core.sandbox)],
+            ['coding', new CodingAgent(core.intelligence)],
+            ['testing', new TestingAgent(core.intelligence)],
+            ['debug', new DebugAgent(core.intelligence)],
           ]),
+          core.sandbox,
         ),
     },
     {

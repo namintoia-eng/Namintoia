@@ -1,4 +1,4 @@
-import type { IntelligenceProvider, SandboxProvider } from '@namintoia/naminto-core';
+import type { AgentRunContext, IntelligenceProvider, SandboxSession } from '@namintoia/naminto-core';
 import { describe, expect, it } from 'vitest';
 import { TestingAgent } from './index.js';
 
@@ -11,13 +11,15 @@ function fakeIntelligenceProvider(content: string): IntelligenceProvider {
   };
 }
 
-function fakeSandboxProvider(exitCode: number | null, timedOut = false): SandboxProvider {
-  return {
-    name: 'fake-sandbox',
+function fakeContext(exitCode: number | null, timedOut = false): AgentRunContext {
+  const session: SandboxSession = {
+    id: 'fake-session',
     async execute() {
       return { exitCode, timedOut, durationMs: 5 };
     },
+    async close() {},
   };
+  return { sandboxSession: session };
 }
 
 // Deep coverage of the shared shell-script-agent behavior lives in
@@ -25,19 +27,25 @@ function fakeSandboxProvider(exitCode: number | null, timedOut = false): Sandbox
 // own identity and wiring.
 describe('TestingAgent', () => {
   it('identifies as the testing role', () => {
-    const agent = new TestingAgent(fakeIntelligenceProvider('npm test'), fakeSandboxProvider(0));
+    const agent = new TestingAgent(fakeIntelligenceProvider('npm test'));
     expect(agent.role).toBe('testing');
   });
 
   it('reports failure when the test run exits non-zero', async () => {
-    const agent = new TestingAgent(fakeIntelligenceProvider('npm test'), fakeSandboxProvider(1));
-    const result = await agent.run({ agentRole: 'testing', instruction: 'test the hello function' });
+    const agent = new TestingAgent(fakeIntelligenceProvider('npm test'));
+    const result = await agent.run(
+      { agentRole: 'testing', instruction: 'test the hello function' },
+      fakeContext(1),
+    );
     expect(result.success).toBe(false);
   });
 
   it('reports success when the test run exits 0', async () => {
-    const agent = new TestingAgent(fakeIntelligenceProvider('npm test'), fakeSandboxProvider(0));
-    const result = await agent.run({ agentRole: 'testing', instruction: 'test the hello function' });
+    const agent = new TestingAgent(fakeIntelligenceProvider('npm test'));
+    const result = await agent.run(
+      { agentRole: 'testing', instruction: 'test the hello function' },
+      fakeContext(0),
+    );
     expect(result.success).toBe(true);
   });
 });

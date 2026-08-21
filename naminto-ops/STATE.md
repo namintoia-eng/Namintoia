@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session Memory System — nouveau contrat `MemoryStore`/`ConversationTurn` dans `packages/naminto-core` (persiste un échange complet : intention → `Plan` → `OrchestrationResult`, horodaté). Implémentation MVP par défaut : `FileMemoryStore` (`packages/memory-system`) — un fichier JSON par projet, écritures sérialisées par projet pour éviter une course lecture-modification-écriture, aucune base de données requise. Câblé dans `apps/api` : `POST /plan` accepte désormais un `projectId` optionnel (`"default"` si absent) et sauvegarde chaque échange ; nouvel endpoint `GET /plan/:projectId` renvoie l'historique. Vérifié en conditions réelles : écriture/lecture sur disque réel confirmée (hors mocks), `GET /plan/default` testé sur le serveur démarré. `npm run lint`, `typecheck`, `test` (29/29) et `build` passent tous.
+- Par : session correctif SandboxProvider (D-11), avant le File System — audit a révélé que chaque tâche d'un `Plan` démarrait dans un sandbox E2B **vide et isolé** (créé/détruit par appel), donc un `Testing Agent` ne pouvait jamais voir les fichiers écrits juste avant par le `Coding Agent` : le pipeline multi-tâches était cassé silencieusement, jamais démontré au-delà d'une seule tâche jusqu'ici. Corrigé : `SandboxProvider.execute()` → `SandboxProvider.createSession(projectId)`, une session E2B unique partagée par toutes les tâches d'un `Plan` (possédée par `SequentialAgentOrchestrator`, fermée dans un `finally`). `Agent.run()` prend désormais un `AgentRunContext` portant la session ; les agents n'ont plus leur propre référence sandbox. **Deuxième bug trouvé en vérifiant ce correctif contre un vrai sandbox E2B (pas un mock)** : l'ancien assemblage naïf `[command, ...args].join(' ')` corrompait tout script généré contenant des guillemets/redirections — corrigé par un échappement shell POSIX standard, revérifié en conditions réelles après correction (fichier écrit par une étape, relu correctement par la suivante, dans la même session). `npm run lint`, `typecheck`, `test` (32/32) et `build` passent tous.
 
 ## Phase actuelle
 
-**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant complet, Memory System inclus** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (avec boucle de correction bornée), Coding/Testing/Debug Agent, sandbox réel (E2B), User Interface de chat, Memory System (persistance fichier). Restent hors scope tant que non demandés explicitement : File System, User System — et la vérification en conditions réelles complète du pipeline une fois le crédit Anthropic disponible.
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est complet et le pipeline multi-tâches est maintenant réellement cohérent** (D-11) — condition préalable posée par l'utilisateur avant d'attaquer le File System. Prochaine étape : le File System lui-même (capturer les fichiers du sandbox partagé à la fin d'un `Plan`, puisqu'ils survivent maintenant le temps du run). Restent hors scope tant que non demandés : User System — et la vérification en conditions réelles complète du pipeline une fois le crédit Anthropic disponible.
 
 ## Ce qui existe
 
@@ -20,7 +20,7 @@
 - [x] Périmètre du MVP défini (`DECISIONS.md` D-2)
 - [x] Implémentations par défaut choisies pour `SandboxProvider`, `BackendProvider`, `IntelligenceProvider`, `PaymentProvider` (`DECISIONS.md` D-3 à D-6)
 - [x] Squelette de dépôt de code (backend `apps/api` NestJS, frontend `apps/web` Next.js, `packages/naminto-core`, `packages/providers/*`)
-- [x] Naminto Core — squelette de coordination (`packages/naminto-core/src/core.ts`) + les 4 interfaces Provider (MVP), chacune avec un adaptateur par défaut : `intelligence-anthropic` (défaut), `intelligence-openai` (2ᵉ adaptateur, D-5), `sandbox-e2b` (fournisseur nommé, D-8 — microVM Firecracker managé via E2B, lève une erreur de config explicite sans `E2B_API_KEY`), `backend-selfhosted` (contrat Postgres/GoTrue/PostgREST, D-4, pas encore d'infra réelle), `payment-stub` (D-6, Billing hors MVP)
+- [x] Naminto Core — squelette de coordination (`packages/naminto-core/src/core.ts`) + les 4 interfaces Provider (MVP), chacune avec un adaptateur par défaut : `intelligence-anthropic` (défaut), `intelligence-openai` (2ᵉ adaptateur, D-5), `sandbox-e2b` (fournisseur nommé, D-8 — microVM Firecracker managé via E2B, session partagée par Plan depuis D-11, lève une erreur de config explicite sans `E2B_API_KEY`), `backend-selfhosted` (contrat Postgres/GoTrue/PostgREST, D-4, pas encore d'infra réelle), `payment-stub` (D-6, Billing hors MVP)
 - [x] Reasoning Engine — `IntelligenceReasoningEngine` (`packages/reasoning-engine`), applique les étapes 1-5 de `WORKFLOW.md` via un `IntelligenceProvider`, valide manuellement la forme JSON de la réponse (pas de `Plan` silencieusement faux)
 - [x] Agent Orchestrator séquentiel — `SequentialAgentOrchestrator` (`packages/agent-orchestrator`), s'arrête au premier échec, erreur explicite si un rôle n'a pas d'agent enregistré
 - [x] Coding Agent — `CodingAgent` (`packages/coding-agent`), spécification → script shell → exécution sandbox → succès basé sur le code de sortie réel, jamais sur la parole du modèle
@@ -46,8 +46,10 @@
 5b. ~~User Interface de chat sur `apps/web`~~ — fait, vérifiée en navigateur réel (et un bug CORS trouvé/corrigé au passage).
 6. ~~Testing Agent + Debug Agent~~ — fait (D-9), boucle de correction bornée à 3 tentatives dans l'orchestrateur.
 7. ~~Memory System~~ — fait, `FileMemoryStore` câblé sur `POST/GET /plan`.
-8. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — seule vérification en conditions réelles qui manque encore pour le périmètre MVP D-2, maintenant fonctionnellement complet.
-9. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : File System, User System.
+8. ~~Corriger le partage de sandbox entre les tâches d'un même Plan~~ — fait (D-11), vérifié en conditions réelles contre E2B.
+9. File System — capturer les fichiers du sandbox partagé à la fin d'un `Plan` pour qu'ils survivent à la fermeture de la session (le sandbox est détruit dans le `finally` de l'orchestrateur).
+10. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible.
+11. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : User System.
 
 ## Blocages / questions ouvertes
 

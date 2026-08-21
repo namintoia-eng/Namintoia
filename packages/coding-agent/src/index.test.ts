@@ -1,4 +1,4 @@
-import type { IntelligenceProvider, SandboxProvider } from '@namintoia/naminto-core';
+import type { AgentRunContext, IntelligenceProvider, SandboxSession } from '@namintoia/naminto-core';
 import { describe, expect, it } from 'vitest';
 import { CodingAgent } from './index.js';
 
@@ -11,13 +11,15 @@ function fakeIntelligenceProvider(content: string): IntelligenceProvider {
   };
 }
 
-function fakeSandboxProvider(exitCode: number | null, timedOut = false): SandboxProvider {
-  return {
-    name: 'fake-sandbox',
+function fakeContext(exitCode: number | null, timedOut = false): AgentRunContext {
+  const session: SandboxSession = {
+    id: 'fake-session',
     async execute() {
       return { exitCode, timedOut, durationMs: 5 };
     },
+    async close() {},
   };
+  return { sandboxSession: session };
 }
 
 // Deep coverage of the shared shell-script-agent behavior (empty script
@@ -26,19 +28,22 @@ function fakeSandboxProvider(exitCode: number | null, timedOut = false): Sandbox
 // own identity and wiring.
 describe('CodingAgent', () => {
   it('identifies as the coding role', () => {
-    const agent = new CodingAgent(fakeIntelligenceProvider('echo hi'), fakeSandboxProvider(0));
+    const agent = new CodingAgent(fakeIntelligenceProvider('echo hi'));
     expect(agent.role).toBe('coding');
   });
 
   it('reports success when the generated script exits 0', async () => {
-    const agent = new CodingAgent(fakeIntelligenceProvider('echo hi'), fakeSandboxProvider(0));
-    const result = await agent.run({ agentRole: 'coding', instruction: 'add a hello function' });
+    const agent = new CodingAgent(fakeIntelligenceProvider('echo hi'));
+    const result = await agent.run({ agentRole: 'coding', instruction: 'add a hello function' }, fakeContext(0));
     expect(result).toEqual({ role: 'coding', success: true, output: '' });
   });
 
   it('reports failure when the generated script exits non-zero', async () => {
-    const agent = new CodingAgent(fakeIntelligenceProvider('exit 1'), fakeSandboxProvider(1));
-    const result = await agent.run({ agentRole: 'coding', instruction: 'add a broken function' });
+    const agent = new CodingAgent(fakeIntelligenceProvider('exit 1'));
+    const result = await agent.run(
+      { agentRole: 'coding', instruction: 'add a broken function' },
+      fakeContext(1),
+    );
     expect(result.success).toBe(false);
   });
 });

@@ -1,9 +1,4 @@
-import type {
-  SandboxExecutionRequest,
-  SandboxExecutionResult,
-  SandboxOutputChunk,
-  SandboxProvider,
-} from '@namintoia/naminto-core';
+import type { SandboxProvider, SandboxSession } from '@namintoia/naminto-core';
 
 /**
  * Placeholder SandboxProvider: conforms to the interface but refuses to run
@@ -15,10 +10,7 @@ import type {
 export class StubSandboxProvider implements SandboxProvider {
   readonly name = 'stub';
 
-  async execute(
-    _request: SandboxExecutionRequest,
-    _onOutput?: (chunk: SandboxOutputChunk) => void,
-  ): Promise<SandboxExecutionResult> {
+  async createSession(_projectId: string): Promise<SandboxSession> {
     throw new Error(
       'StubSandboxProvider: no managed sandbox provider is configured yet (DECISIONS.md D-3). ' +
         'Refusing to execute code outside a real sandbox.',

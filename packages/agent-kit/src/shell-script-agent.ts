@@ -1,12 +1,11 @@
-import { randomUUID } from 'node:crypto';
 import type {
   Agent,
   AgentRole,
+  AgentRunContext,
   AgentTask,
   AgentTaskResult,
   IntelligenceProvider,
   SandboxOutputChunk,
-  SandboxProvider,
 } from '@namintoia/naminto-core';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -14,25 +13,23 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 /**
  * Shared behavior for every agent that turns an instruction into a shell
  * script (via an IntelligenceProvider) and proves it worked by actually
- * running it in a SandboxProvider. Success is decided strictly by the
- * sandbox's exit code and timedOut flag — never by the model's own claims —
- * matching NAMINTO.md's "the model says it's done is never proof of
- * success" rule. Coding, Testing, and Debug agents all follow this same
- * shape; only the role and system prompt differ (naminto-ops/RULES.md:
- * Naminto Core itself must not grow with agent-specific logic, so this
- * lives in its own package rather than in @namintoia/naminto-core).
+ * running it in the Plan's shared SandboxSession (AgentRunContext). Success
+ * is decided strictly by the sandbox's exit code and timedOut flag — never
+ * by the model's own claims — matching NAMINTO.md's "the model says it's
+ * done is never proof of success" rule. Coding, Testing, and Debug agents
+ * all follow this same shape; only the role and system prompt differ
+ * (naminto-ops/RULES.md: Naminto Core itself must not grow with
+ * agent-specific logic, so this lives in its own package rather than in
+ * @namintoia/naminto-core).
  */
 export abstract class ShellScriptAgent implements Agent {
   abstract readonly role: AgentRole;
   protected abstract readonly systemPrompt: string;
   protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS;
 
-  constructor(
-    protected readonly intelligence: IntelligenceProvider,
-    protected readonly sandbox: SandboxProvider,
-  ) {}
+  constructor(protected readonly intelligence: IntelligenceProvider) {}
 
-  async run(task: AgentTask): Promise<AgentTaskResult> {
+  async run(task: AgentTask, context: AgentRunContext): Promise<AgentTaskResult> {
     const generated = await this.intelligence.generate({
       messages: [
         { role: 'system', content: this.systemPrompt },
@@ -52,9 +49,8 @@ export abstract class ShellScriptAgent implements Agent {
       }
     };
 
-    const result = await this.sandbox.execute(
+    const result = await context.sandboxSession.execute(
       {
-        projectId: `${this.role}-agent-${randomUUID()}`,
         command: 'sh',
         args: ['-c', script],
         limits: { maxWallClockMs: this.timeoutMs },

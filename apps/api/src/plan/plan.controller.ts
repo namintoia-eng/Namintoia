@@ -34,7 +34,7 @@ export class PlanController {
   async createAndRun(@Body() body: unknown): Promise<RunPlanResponse> {
     const { intent, projectId } = extractRequest(body);
     const plan = await this.reasoningEngine.planFromIntent(intent);
-    const result = await this.orchestrator.run(plan);
+    const result = await this.orchestrator.run(plan, projectId);
     const turn = await this.memory.saveTurn({ projectId, intent, plan, result });
     return { plan, result, turnId: turn.id };
   }

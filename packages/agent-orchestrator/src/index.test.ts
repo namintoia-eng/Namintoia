@@ -1,15 +1,64 @@
-import type { Agent, AgentTask, AgentTaskResult, Plan } from '@namintoia/naminto-core';
+import type {
+  Agent,
+  AgentRunContext,
+  AgentTask,
+  AgentTaskResult,
+  Plan,
+  SandboxProvider,
+  SandboxSession,
+} from '@namintoia/naminto-core';
 import { describe, expect, it } from 'vitest';
 import { SequentialAgentOrchestrator } from './index.js';
 
-function fakeAgent(role: AgentTaskResult['role'], succeed: boolean): Agent & { calls: AgentTask[] } {
-  const calls: AgentTask[] = [];
+function fakeAgent(
+  role: AgentTaskResult['role'],
+  succeed: boolean,
+): Agent & { calls: AgentRunContext[] } {
+  const calls: AgentRunContext[] = [];
   return {
     role,
     calls,
-    async run(task: AgentTask): Promise<AgentTaskResult> {
-      calls.push(task);
+    async run(_task: AgentTask, context: AgentRunContext): Promise<AgentTaskResult> {
+      calls.push(context);
       return { role, success: succeed, output: succeed ? 'ok' : 'failed' };
+    },
+  };
+}
+
+function fakeAgentSucceedingOnAttempt(
+  role: AgentTaskResult['role'],
+  succeedOnAttempt: number,
+): Agent & { calls: AgentRunContext[] } {
+  const calls: AgentRunContext[] = [];
+  return {
+    role,
+    calls,
+    async run(_task: AgentTask, context: AgentRunContext): Promise<AgentTaskResult> {
+      calls.push(context);
+      const succeed = calls.length >= succeedOnAttempt;
+      return { role, success: succeed, output: succeed ? 'fixed' : 'still failing' };
+    },
+  };
+}
+
+function fakeSandboxProvider(): SandboxProvider & { sessions: (SandboxSession & { closed: boolean })[] } {
+  const sessions: (SandboxSession & { closed: boolean })[] = [];
+  return {
+    name: 'fake-sandbox',
+    sessions,
+    async createSession(projectId: string) {
+      const session: SandboxSession & { closed: boolean } = {
+        id: `${projectId}-session-${sessions.length}`,
+        closed: false,
+        async execute() {
+          return { exitCode: 0, timedOut: false, durationMs: 1 };
+        },
+        async close() {
+          session.closed = true;
+        },
+      };
+      sessions.push(session);
+      return session;
     },
   };
 }
@@ -32,11 +81,13 @@ describe('SequentialAgentOrchestrator', () => {
   it('runs tasks in order and reports success when every task succeeds', async () => {
     const coding = fakeAgent('coding', true);
     const testing = fakeAgent('testing', true);
+    const sandbox = fakeSandboxProvider();
     const orchestrator = new SequentialAgentOrchestrator(
       new Map([
         ['coding', coding],
         ['testing', testing],
       ]),
+      sandbox,
     );
 
     const plan = planWith([
@@ -44,7 +95,7 @@ describe('SequentialAgentOrchestrator', () => {
       { agentRole: 'testing', instruction: 'write the tests' },
     ]);
 
-    const result = await orchestrator.run(plan);
+    const result = await orchestrator.run(plan, 'proj-1');
 
     expect(result.success).toBe(true);
     expect(result.results.map((r) => r.role)).toEqual(['coding', 'testing']);
@@ -52,14 +103,16 @@ describe('SequentialAgentOrchestrator', () => {
     expect(testing.calls).toHaveLength(1);
   });
 
-  it('stops at the first failed task instead of running the rest', async () => {
-    const coding = fakeAgent('coding', false);
+  it('shares the same sandbox session across every task in the plan', async () => {
+    const coding = fakeAgent('coding', true);
     const testing = fakeAgent('testing', true);
+    const sandbox = fakeSandboxProvider();
     const orchestrator = new SequentialAgentOrchestrator(
       new Map([
         ['coding', coding],
         ['testing', testing],
       ]),
+      sandbox,
     );
 
     const plan = planWith([
@@ -67,7 +120,59 @@ describe('SequentialAgentOrchestrator', () => {
       { agentRole: 'testing', instruction: 'write the tests' },
     ]);
 
-    const result = await orchestrator.run(plan);
+    await orchestrator.run(plan, 'proj-1');
+
+    expect(sandbox.sessions).toHaveLength(1);
+    const [session] = sandbox.sessions;
+    expect(coding.calls[0]?.sandboxSession).toBe(session);
+    expect(testing.calls[0]?.sandboxSession).toBe(session);
+  });
+
+  it('closes the sandbox session even when a task fails', async () => {
+    const coding = fakeAgent('coding', false);
+    const sandbox = fakeSandboxProvider();
+    const orchestrator = new SequentialAgentOrchestrator(new Map([['coding', coding]]), sandbox);
+
+    await orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'write the code' }]), 'proj-1');
+
+    expect(sandbox.sessions[0]?.closed).toBe(true);
+  });
+
+  it('closes the sandbox session even when an agent throws', async () => {
+    const throwing: Agent = {
+      role: 'coding',
+      async run() {
+        throw new Error('boom');
+      },
+    };
+    const sandbox = fakeSandboxProvider();
+    const orchestrator = new SequentialAgentOrchestrator(new Map([['coding', throwing]]), sandbox);
+
+    await expect(
+      orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'x' }]), 'proj-1'),
+    ).rejects.toThrow('boom');
+
+    expect(sandbox.sessions[0]?.closed).toBe(true);
+  });
+
+  it('stops at the first failed task instead of running the rest', async () => {
+    const coding = fakeAgent('coding', false);
+    const testing = fakeAgent('testing', true);
+    const sandbox = fakeSandboxProvider();
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([
+        ['coding', coding],
+        ['testing', testing],
+      ]),
+      sandbox,
+    );
+
+    const plan = planWith([
+      { agentRole: 'coding', instruction: 'write the code' },
+      { agentRole: 'testing', instruction: 'write the tests' },
+    ]);
+
+    const result = await orchestrator.run(plan, 'proj-1');
 
     expect(result.success).toBe(false);
     expect(result.results).toHaveLength(1);
@@ -75,24 +180,28 @@ describe('SequentialAgentOrchestrator', () => {
   });
 
   it('throws a clear error when a task needs an unregistered agent role', async () => {
-    const orchestrator = new SequentialAgentOrchestrator(new Map());
+    const orchestrator = new SequentialAgentOrchestrator(new Map(), fakeSandboxProvider());
     const plan = planWith([{ agentRole: 'debug', instruction: 'fix it' }]);
 
-    await expect(orchestrator.run(plan)).rejects.toThrow(/no agent registered for role "debug"/);
+    await expect(orchestrator.run(plan, 'proj-1')).rejects.toThrow(
+      /no agent registered for role "debug"/,
+    );
   });
 
   it('hands a failed task to the debug agent and succeeds once the fix works', async () => {
     const coding = fakeAgent('coding', false);
     const debug = fakeAgentSucceedingOnAttempt('debug', 2);
+    const sandbox = fakeSandboxProvider();
     const orchestrator = new SequentialAgentOrchestrator(
       new Map([
         ['coding', coding],
         ['debug', debug],
       ]),
+      sandbox,
     );
 
     const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
-    const result = await orchestrator.run(plan);
+    const result = await orchestrator.run(plan, 'proj-1');
 
     expect(result.success).toBe(true);
     expect(debug.calls).toHaveLength(2);
@@ -103,16 +212,18 @@ describe('SequentialAgentOrchestrator', () => {
   it('stops after the bounded number of debug attempts and surfaces the failure', async () => {
     const coding = fakeAgent('coding', false);
     const debug = fakeAgent('debug', false);
+    const sandbox = fakeSandboxProvider();
     const orchestrator = new SequentialAgentOrchestrator(
       new Map([
         ['coding', coding],
         ['debug', debug],
       ]),
+      sandbox,
       { maxDebugAttempts: 3 },
     );
 
     const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
-    const result = await orchestrator.run(plan);
+    const result = await orchestrator.run(plan, 'proj-1');
 
     expect(result.success).toBe(false);
     expect(debug.calls).toHaveLength(3);
@@ -122,33 +233,19 @@ describe('SequentialAgentOrchestrator', () => {
   it('never invokes the debug agent when every task already succeeds', async () => {
     const coding = fakeAgent('coding', true);
     const debug = fakeAgent('debug', true);
+    const sandbox = fakeSandboxProvider();
     const orchestrator = new SequentialAgentOrchestrator(
       new Map([
         ['coding', coding],
         ['debug', debug],
       ]),
+      sandbox,
     );
 
     const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
-    const result = await orchestrator.run(plan);
+    const result = await orchestrator.run(plan, 'proj-1');
 
     expect(result.success).toBe(true);
     expect(debug.calls).toHaveLength(0);
   });
 });
-
-function fakeAgentSucceedingOnAttempt(
-  role: AgentTaskResult['role'],
-  succeedOnAttempt: number,
-): Agent & { calls: AgentTask[] } {
-  const calls: AgentTask[] = [];
-  return {
-    role,
-    calls,
-    async run(task: AgentTask): Promise<AgentTaskResult> {
-      calls.push(task);
-      const succeed = calls.length >= succeedOnAttempt;
-      return { role, success: succeed, output: succeed ? 'fixed' : 'still failing' };
-    },
-  };
-}

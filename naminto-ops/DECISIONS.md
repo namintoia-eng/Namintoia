@@ -155,4 +155,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** `apps/api` : `POST /plan` accepte un `projectId` optionnel (`"default"` si absent) et sauvegarde chaque échange ; nouvel endpoint `GET /plan/:projectId` relit l'historique. Une future migration vers une vraie base de données (une fois `BackendProvider`/D-4 réellement provisionné) n'implique de changer que l'implémentation `MemoryStore` branchée dans `apps/api`, pas le contrat ni les appelants — cohérent avec le principe d'interface stable de `RULES.md`.
 
-<!-- Prochaine entrée : D-11 -->
+### D-11 — SandboxProvider : session partagée par Plan, pas un sandbox par commande (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** En commençant le File System, audit du `SandboxProvider` existant (D-3/D-8) : chaque appel `execute()` créait puis détruisait un sandbox E2B complet. Conséquence concrète non testée jusqu'ici : dans un `Plan` à plusieurs tâches (coding → testing → debug, le cas normal), chaque tâche démarrait dans un sandbox **vide** — le Testing Agent ne pouvait pas voir les fichiers écrits par le Coding Agent qui vient de s'exécuter juste avant. Le pipeline multi-tâches était donc cassé silencieusement (jamais démontré avec plus d'une tâche jusqu'ici). Une vraie couche File System n'a de sens que si un espace de fichiers survit au moins le temps d'un `Plan`.
+
+**Décision :** `SandboxProvider.execute(request)` remplacé par `SandboxProvider.createSession(projectId): Promise<SandboxSession>`, où `SandboxSession` reste vivante et expose `execute()`/`close()` pour plusieurs commandes. `SequentialAgentOrchestrator` possède désormais le cycle de vie de la session : une session créée au début de `run(plan, projectId)`, partagée par tous les agents de ce run via un nouveau `AgentRunContext`, fermée dans un `finally` (succès, échec, ou exception). `E2bSandboxProvider` : un seul sandbox E2B créé par session (au lieu d'un par commande), tué explicitement à `close()`.
+
+**Bug additionnel trouvé en vérifiant ce correctif en conditions réelles (pas en mock) :** l'ancien code joignait `[command, ...args]` par de simples espaces avant de les passer à `sandbox.commands.run()` — qui réinterprète cette chaîne comme une ligne de commande shell. Pour un script généré contenant des guillemets ou une redirection (`echo 'x' > fichier`), ce ré-assemblage naïf corrompait silencieusement le script (la redirection s'appliquait au mauvais processus, un test réel a produit un fichier contenant `"\n"` au lieu du contenu attendu). Corrigé par un échappement shell POSIX standard (guillemets simples, `'` interne échappé en `'\''`) de chaque argument avant assemblage — vérifié à nouveau en conditions réelles après correction.
+
+**Alternatives envisagées :** Garder un sandbox par commande et faire porter la persistance par un futur File System qui re-synchronise les fichiers entre chaque appel (rejeté : complexité et latence inutiles — E2B supporte nativement des sessions longues, autant s'en servir directement). Laisser le bug de sandbox isolé de côté et construire le File System à côté (option proposée à l'utilisateur, explicitement refusée en faveur de la correction d'abord).
+
+**Conséquences :** `Agent.run(task, context)` prend désormais un `AgentRunContext` contenant la session — tout agent doit l'utiliser plutôt que garder sa propre référence sandbox (les constructeurs `CodingAgent`/`TestingAgent`/`DebugAgent` ne prennent d'ailleurs plus de `SandboxProvider` du tout, seulement l'`IntelligenceProvider`). `AgentOrchestrator.run()` prend désormais un `projectId` en second paramètre. Le File System (prochaine étape) peut maintenant capturer un état de fichiers cohérent à la fin d'un `Plan`, puisque toutes les tâches ont réellement partagé le même espace.
+
+<!-- Prochaine entrée : D-12 -->
