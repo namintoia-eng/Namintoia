@@ -1,0 +1,33 @@
+{
+  "name": "namintoia",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "npm@11.6.2",
+  "type": "module",
+  "description": "Naminto IA — plateforme d'IA autonome qui transforme une intention en langage naturel en application logicielle complète, fonctionnelle et testée.",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/providers/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
