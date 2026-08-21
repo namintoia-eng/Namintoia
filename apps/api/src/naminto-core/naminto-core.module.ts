@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { NamintoCore } from '@namintoia/naminto-core';
+import type { Agent, AgentRole } from '@namintoia/naminto-core';
 import { AnthropicIntelligenceProvider } from '@namintoia/intelligence-anthropic';
 import { SelfHostedBackendProvider } from '@namintoia/backend-selfhosted';
 import { E2bSandboxProvider } from '@namintoia/sandbox-e2b';
@@ -7,6 +8,8 @@ import { StubPaymentProvider } from '@namintoia/payment-stub';
 import { IntelligenceReasoningEngine } from '@namintoia/reasoning-engine';
 import { SequentialAgentOrchestrator } from '@namintoia/agent-orchestrator';
 import { CodingAgent } from '@namintoia/coding-agent';
+import { TestingAgent } from '@namintoia/testing-agent';
+import { DebugAgent } from '@namintoia/debug-agent';
 
 export const NAMINTO_CORE = Symbol('NAMINTO_CORE');
 export const REASONING_ENGINE = Symbol('REASONING_ENGINE');
@@ -45,7 +48,11 @@ export const AGENT_ORCHESTRATOR = Symbol('AGENT_ORCHESTRATOR');
       inject: [NAMINTO_CORE],
       useFactory: (core: NamintoCore) =>
         new SequentialAgentOrchestrator(
-          new Map([['coding', new CodingAgent(core.intelligence, core.sandbox)]]),
+          new Map<AgentRole, Agent>([
+            ['coding', new CodingAgent(core.intelligence, core.sandbox)],
+            ['testing', new TestingAgent(core.intelligence, core.sandbox)],
+            ['debug', new DebugAgent(core.intelligence, core.sandbox)],
+          ]),
         ),
     },
   ],

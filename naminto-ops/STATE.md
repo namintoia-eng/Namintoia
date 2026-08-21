@@ -6,11 +6,11 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-21
-- Par : session User Interface — `apps/web` transformé de page statique en véritable chat d'intention : `app/page.tsx` (composant client) envoie `{ intent }` à `POST /plan` et affiche les 4 états requis (`design-agent.md`) — vide, chargement, erreur, succès (plan + résultat de chaque tâche). Type-safe via `@namintoia/naminto-core` (types `Plan`/`OrchestrationResult` réutilisés, pas dupliqués). **Bug réel trouvé et corrigé pendant la vérification live dans le navigateur** : CORS bloquait tout appel `localhost:3000` → `localhost:3001` (`app.enableCors()` ajouté dans `apps/api/src/main.ts`, origine lue depuis `APP_URL`). Vérifié en conditions réelles après correction : formulaire rempli et soumis dans un vrai navigateur, l'état d'erreur s'affiche correctement avec le message renvoyé par l'API (toujours bloqué sur le crédit Anthropic, mais la chaîne UI→API→Reasoning Engine→Anthropic est confirmée de bout en bout). **Point de configuration à retenir** : la racine de travail principale de cet outil de vibecoding est encore `D:\ADF\Naminto.AI` (l'ancien dépôt abandonné) — `.claude/launch.json` y a été cherché en premier par l'outil d'aperçu navigateur, lançant par erreur l'ancien site. Contournement : démarrer les serveurs manuellement (`npm run dev`) et attacher le navigateur via `url` plutôt que via un nom de config `.claude/launch.json`, tant que la racine de travail principale de l'outil pointe encore vers l'ancien dépôt. `npm run lint`, `typecheck`, `test` (26/26) et `build` passent tous.
+- Par : session Testing Agent + Debug Agent — `packages/agent-kit` créé (`ShellScriptAgent`, classe abstraite partagée par les 3 agents à base de script shell, D-9). `TestingAgent` (`packages/testing-agent`) et `DebugAgent` (`packages/debug-agent`) ajoutés sur ce patron. `CodingAgent` refactorisé pour hériter de `ShellScriptAgent` (comportement inchangé, tests allégés car la logique partagée est désormais testée une seule fois dans `agent-kit`). `SequentialAgentOrchestrator` gagne une boucle de retry bornée à 3 tentatives (configurable) : si une tâche échoue et qu'un agent `debug` est enregistré, il est invoqué jusqu'à épuisement des tentatives avant d'abandonner ; sans agent `debug` enregistré, comportement inchangé. Les trois agents sont enregistrés dans `apps/api` (`coding`/`testing`/`debug`) ; démarrage de l'API vérifié en conditions réelles (boot propre, DI résolue, `/health` répond). `npm run lint`, `typecheck`, `test` et `build` passent tous.
 
 ## Phase actuelle
 
-**Le MVP minimal end-to-end tel que défini dans `DECISIONS.md` D-2 est maintenant démontrable** : chat → Reasoning Engine → Agent Orchestrator → Coding Agent → sandbox réel (E2B), avec deux blocages restants qui ne sont pas des bugs (voir « Blocages » ci-dessous) : crédit Anthropic et absence de Testing/Debug Agent.
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est maintenant complet** : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator (avec boucle de correction bornée), Coding/Testing/Debug Agent, sandbox réel (E2B), User Interface de chat. Seuls restent : Memory System, File System, User System (non commencés, hors scope de cette série de sessions) et la vérification en conditions réelles complète une fois le crédit Anthropic disponible.
 
 ## Ce qui existe
 
@@ -25,9 +25,9 @@
 - [x] Agent Orchestrator séquentiel — `SequentialAgentOrchestrator` (`packages/agent-orchestrator`), s'arrête au premier échec, erreur explicite si un rôle n'a pas d'agent enregistré
 - [x] Coding Agent — `CodingAgent` (`packages/coding-agent`), spécification → script shell → exécution sandbox → succès basé sur le code de sortie réel, jamais sur la parole du modèle
 - [x] `apps/api` : `POST /plan` câble Reasoning Engine → Agent Orchestrator → Coding Agent bout en bout, vérifié en conditions réelles (voir ci-dessus)
-- [ ] Testing Agent (MVP, version minimale)
-- [ ] Debug Agent (MVP, boucle bornée à 3 tentatives)
-- [ ] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché)
+- [x] Testing Agent — `TestingAgent` (`packages/testing-agent`), écrit et exécute de vrais tests couvrant les cas limites, pas seulement le chemin heureux (`testing-agent.md`)
+- [x] Debug Agent — `DebugAgent` (`packages/debug-agent`), diagnostique et corrige une tâche en échec, invoqué par l'orchestrateur en boucle bornée à 3 tentatives (`debug-agent.md`, D-9)
+- [x] Execution Engine / Sandbox (MVP, un seul `SandboxProvider` branché) — E2B, D-8
 - [ ] Memory System (MVP, persistance d'état simple, pas encore de recherche sémantique)
 - [ ] File System (MVP)
 - [ ] User System (MVP, authentification simple)
@@ -44,8 +44,9 @@
 4. ~~Coding Agent~~ — fait (`packages/coding-agent`).
 5a. ~~Brancher Reasoning Engine + Agent Orchestrator + Coding Agent sur `apps/api`~~ — fait (`POST /plan`), vérifié en conditions réelles.
 5b. ~~User Interface de chat sur `apps/web`~~ — fait, vérifiée en navigateur réel (et un bug CORS trouvé/corrigé au passage).
-6. Testing Agent + Debug Agent (MVP minimal, D-2) — pour boucler l'auto-correction plutôt que de s'arrêter au premier échec du Coding Agent.
-7. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible.
+6. ~~Testing Agent + Debug Agent~~ — fait (D-9), boucle de correction bornée à 3 tentatives dans l'orchestrateur.
+7. Retester tout le pipeline avec un vrai crédit Anthropic dès qu'il est disponible — seule vérification en conditions réelles qui manque encore pour le périmètre MVP D-2.
+8. Au-delà du MVP D-2 (à discuter avec l'utilisateur avant de commencer, ce n'est pas encore demandé) : Memory System, File System, User System.
 
 ## Blocages / questions ouvertes
 

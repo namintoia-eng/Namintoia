@@ -1,5 +1,5 @@
 {
-  "name": "@namintoia/coding-agent",
+  "name": "@namintoia/agent-kit",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@namintoia/agent-kit": "*",
     "@namintoia/naminto-core": "*"
   },
   "devDependencies": {

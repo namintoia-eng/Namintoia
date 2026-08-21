@@ -1,0 +1,75 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  Agent,
+  AgentRole,
+  AgentTask,
+  AgentTaskResult,
+  IntelligenceProvider,
+  SandboxOutputChunk,
+  SandboxProvider,
+} from '@namintoia/naminto-core';
+
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+/**
+ * Shared behavior for every agent that turns an instruction into a shell
+ * script (via an IntelligenceProvider) and proves it worked by actually
+ * running it in a SandboxProvider. Success is decided strictly by the
+ * sandbox's exit code and timedOut flag — never by the model's own claims —
+ * matching NAMINTO.md's "the model says it's done is never proof of
+ * success" rule. Coding, Testing, and Debug agents all follow this same
+ * shape; only the role and system prompt differ (naminto-ops/RULES.md:
+ * Naminto Core itself must not grow with agent-specific logic, so this
+ * lives in its own package rather than in @namintoia/naminto-core).
+ */
+export abstract class ShellScriptAgent implements Agent {
+  abstract readonly role: AgentRole;
+  protected abstract readonly systemPrompt: string;
+  protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS;
+
+  constructor(
+    protected readonly intelligence: IntelligenceProvider,
+    protected readonly sandbox: SandboxProvider,
+  ) {}
+
+  async run(task: AgentTask): Promise<AgentTaskResult> {
+    const generated = await this.intelligence.generate({
+      messages: [
+        { role: 'system', content: this.systemPrompt },
+        { role: 'user', content: task.instruction },
+      ],
+    });
+
+    const script = generated.content.trim();
+    if (script.length === 0) {
+      throw new Error(`${this.role} agent: model returned an empty script for this task.`);
+    }
+
+    const output: string[] = [];
+    const onOutput = (chunk: SandboxOutputChunk): void => {
+      if (chunk.stream === 'stdout' || chunk.stream === 'stderr') {
+        output.push(chunk.data);
+      }
+    };
+
+    const result = await this.sandbox.execute(
+      {
+        projectId: `${this.role}-agent-${randomUUID()}`,
+        command: 'sh',
+        args: ['-c', script],
+        limits: { maxWallClockMs: this.timeoutMs },
+      },
+      onOutput,
+    );
+
+    const success = !result.timedOut && result.exitCode === 0;
+
+    return {
+      role: this.role,
+      success,
+      output: success
+        ? output.join('')
+        : `${output.join('')}\n[${this.role} agent] failed: exitCode=${result.exitCode}, timedOut=${result.timedOut}`,
+    };
+  }
+}

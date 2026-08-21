@@ -131,4 +131,16 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** `apps/api` câble désormais `E2bSandboxProvider` comme `SandboxProvider` par défaut de `NamintoCore`, à la place de `sandbox-stub`. Sans `E2B_API_KEY` configurée dans `.env`, l'adaptateur lève une erreur de configuration explicite au premier appel — aucun appel réseau réel tant qu'une clé n'est fournie (même garde-fou que les adaptateurs `IntelligenceProvider`). Le compte E2B et sa clé restent à créer par l'utilisateur (`naminto-ops/STATE.md` § Blocages).
 
-<!-- Prochaine entrée : D-9 -->
+### D-9 — Testing/Debug Agent : base partagée `agent-kit`, retry borné dans l'Agent Orchestrator (2026-08-21)
+
+**Statut :** acceptée
+
+**Contexte :** Ajout du Testing Agent et du Debug Agent (MVP, `DECISIONS.md` D-2). Les trois agents (Coding, Testing, Debug) suivent exactement la même forme — transformer une instruction en script shell via un `IntelligenceProvider`, l'exécuter dans un `SandboxProvider`, décider du succès sur le seul code de sortie réel. Dupliquer cette logique une troisième fois (règle des trois occurrences) aurait été une dette évitable. Par ailleurs, `debug-agent.md` exige une boucle de correction **bornée à 3 tentatives** qui se déclenche sur un échec, pas une tâche planifiée à l'avance — ce comportement doit vivre dans l'orchestrateur, pas dans un agent isolé.
+
+**Décision :** Extraction de la logique partagée dans un nouveau paquet `packages/agent-kit` (`ShellScriptAgent`, classe abstraite implémentant `Agent`) ; `CodingAgent`, `TestingAgent` et `DebugAgent` n'en héritent que le rôle et le prompt système. Cette logique **ne vit pas dans `packages/naminto-core`** — `architecture-agent.md` interdit explicitement de faire grossir Naminto Core avec de la logique métier spécifique à un agent. `SequentialAgentOrchestrator` gagne une boucle de retry bornée : si une tâche échoue et qu'un agent `debug` est enregistré, il est invoqué jusqu'à `maxDebugAttempts` fois (3 par défaut, configurable) avant d'abandonner et de remonter l'historique complet des tentatives — sans agent `debug` enregistré, le comportement est inchangé (arrêt immédiat).
+
+**Alternatives envisagées :** Dupliquer la logique dans chaque agent (rejeté : dette de maintenance, la règle des trois occurrences est atteinte). Faire de `Debug Agent` une tâche ordinaire du `Plan` produite par le Reasoning Engine (rejeté : le Reasoning Engine planifie *avant* l'exécution, il ne peut pas savoir à l'avance qu'une tâche va échouer — la boucle de correction doit être réactive, donc portée par l'orchestrateur).
+
+**Conséquences :** `apps/api` enregistre désormais les trois agents (`coding`, `testing`, `debug`) auprès de l'`AgentOrchestrator`. Tout futur agent au même patron (script shell + sandbox) doit étendre `ShellScriptAgent` plutôt que ré-implémenter `Agent` depuis zéro.
+
+<!-- Prochaine entrée : D-10 -->

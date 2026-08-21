@@ -80,4 +80,75 @@ describe('SequentialAgentOrchestrator', () => {
 
     await expect(orchestrator.run(plan)).rejects.toThrow(/no agent registered for role "debug"/);
   });
+
+  it('hands a failed task to the debug agent and succeeds once the fix works', async () => {
+    const coding = fakeAgent('coding', false);
+    const debug = fakeAgentSucceedingOnAttempt('debug', 2);
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([
+        ['coding', coding],
+        ['debug', debug],
+      ]),
+    );
+
+    const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
+    const result = await orchestrator.run(plan);
+
+    expect(result.success).toBe(true);
+    expect(debug.calls).toHaveLength(2);
+    // coding result + 2 debug attempts
+    expect(result.results).toHaveLength(3);
+  });
+
+  it('stops after the bounded number of debug attempts and surfaces the failure', async () => {
+    const coding = fakeAgent('coding', false);
+    const debug = fakeAgent('debug', false);
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([
+        ['coding', coding],
+        ['debug', debug],
+      ]),
+      { maxDebugAttempts: 3 },
+    );
+
+    const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
+    const result = await orchestrator.run(plan);
+
+    expect(result.success).toBe(false);
+    expect(debug.calls).toHaveLength(3);
+    expect(result.results).toHaveLength(4); // coding result + 3 debug attempts
+  });
+
+  it('never invokes the debug agent when every task already succeeds', async () => {
+    const coding = fakeAgent('coding', true);
+    const debug = fakeAgent('debug', true);
+    const orchestrator = new SequentialAgentOrchestrator(
+      new Map([
+        ['coding', coding],
+        ['debug', debug],
+      ]),
+    );
+
+    const plan = planWith([{ agentRole: 'coding', instruction: 'write the code' }]);
+    const result = await orchestrator.run(plan);
+
+    expect(result.success).toBe(true);
+    expect(debug.calls).toHaveLength(0);
+  });
 });
+
+function fakeAgentSucceedingOnAttempt(
+  role: AgentTaskResult['role'],
+  succeedOnAttempt: number,
+): Agent & { calls: AgentTask[] } {
+  const calls: AgentTask[] = [];
+  return {
+    role,
+    calls,
+    async run(task: AgentTask): Promise<AgentTaskResult> {
+      calls.push(task);
+      const succeed = calls.length >= succeedOnAttempt;
+      return { role, success: succeed, output: succeed ? 'fixed' : 'still failing' };
+    },
+  };
+}
