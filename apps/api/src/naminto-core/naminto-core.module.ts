@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { NamintoCore } from '@namintoia/naminto-core';
 import type { Agent, AgentRole } from '@namintoia/naminto-core';
-import { AnthropicIntelligenceProvider } from '@namintoia/intelligence-anthropic';
+import { GroqIntelligenceProvider } from '@namintoia/intelligence-groq';
 import { SelfHostedBackendProvider } from '@namintoia/backend-selfhosted';
 import { E2bSandboxProvider } from '@namintoia/sandbox-e2b';
 import { StubPaymentProvider } from '@namintoia/payment-stub';
@@ -23,12 +23,17 @@ export const FILE_SYSTEM = Symbol('FILE_SYSTEM');
 export const USER_SYSTEM = Symbol('USER_SYSTEM');
 export const PROJECT_SYSTEM = Symbol('PROJECT_SYSTEM');
 
-// Anthropic is the default IntelligenceProvider (DECISIONS.md D-5); the
-// second adaptor (@namintoia/intelligence-openai) is available and tested
-// the same way, just not wired as the default here yet. E2B is the default
-// SandboxProvider (DECISIONS.md D-8) — without E2B_API_KEY/ANTHROPIC_API_KEY
-// configured, the underlying providers throw a clear error on first use
-// rather than silently doing nothing.
+// Groq is the default IntelligenceProvider (DECISIONS.md D-23 — replaces
+// Anthropic as the default because the configured Anthropic account never
+// had credit, blocking every real end-to-end verification from D-19
+// onward; Groq's API is OpenAI-compatible and fast). @namintoia/intelligence-anthropic,
+// @namintoia/intelligence-openai and @namintoia/intelligence-ollama remain
+// implemented and tested, just not wired as the default here — same
+// "one class imported and instantiated" convention as before, only the
+// choice of class changed. E2B is the default SandboxProvider (DECISIONS.md
+// D-8) — without E2B_API_KEY/GROQ_API_KEY configured, the underlying
+// providers throw a clear error on first use rather than silently doing
+// nothing.
 //
 // ReasoningEngine and AgentOrchestrator are derived from the same
 // NamintoCore providers rather than constructing their own — one
@@ -40,7 +45,7 @@ export const PROJECT_SYSTEM = Symbol('PROJECT_SYSTEM');
       provide: NAMINTO_CORE,
       useFactory: () =>
         new NamintoCore({
-          intelligence: new AnthropicIntelligenceProvider(),
+          intelligence: new GroqIntelligenceProvider(),
           sandbox: new E2bSandboxProvider(),
           backend: new SelfHostedBackendProvider(),
           payment: new StubPaymentProvider(),

@@ -17,6 +17,8 @@
     "@namintoia/debug-agent": "*",
     "@namintoia/file-system": "*",
     "@namintoia/intelligence-anthropic": "*",
+    "@namintoia/intelligence-groq": "*",
+    "@namintoia/intelligence-ollama": "*",
     "@namintoia/intelligence-openai": "*",
     "@namintoia/memory-system": "*",
     "@namintoia/naminto-core": "*",

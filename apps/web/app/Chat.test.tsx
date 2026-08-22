@@ -23,6 +23,15 @@ const FAKE_TURN = {
   result: { plan: FAKE_PLAN, results: [{ role: 'coding', success: true, output: 'goodbye.txt written' }], success: true },
 };
 
+const FAKE_TURN_2 = {
+  id: 'turn-2',
+  projectId: 'proj-1',
+  intent: 'add second.txt',
+  createdAt: '2026-08-22T00:05:00.000Z',
+  plan: FAKE_PLAN,
+  result: { plan: FAKE_PLAN, results: [{ role: 'coding', success: true, output: 'second.txt written' }], success: true },
+};
+
 /** Encodes a PlanStreamEvent sequence exactly like apps/api's `@Sse()` route (DECISIONS.md
  * D-21) — one `data: {...}\n\n` frame per event, no `id:`/`event:` fields. */
 function sseResponse(events: unknown[]): Response {
@@ -80,6 +89,10 @@ function submitIntent(text: string): void {
   fireEvent.click(screen.getByRole('button', { name: /Envoyer/ }));
 }
 
+function openFilesPanel(): void {
+  fireEvent.click(screen.getByRole('button', { name: /Fichiers/ }));
+}
+
 function renderChat(overrides: Partial<Parameters<typeof Chat>[0]> = {}) {
   const onLogout = vi.fn();
   const onUnauthorized = vi.fn();
@@ -110,8 +123,7 @@ describe('Chat', () => {
     setFetch(mockFetchByUrl({}));
     renderChat();
     expect(screen.getByRole('heading', { name: /Naminto IA — Test Project/ })).toBeTruthy();
-    expect(screen.getByText(/Aucune demande envoyée/)).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(/Aucune demande dans l'historique/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Aucune conversation pour l'instant/)).toBeTruthy());
   });
 
   it('sends the bearer token on every /plan request', async () => {
@@ -132,7 +144,7 @@ describe('Chat', () => {
     });
   });
 
-  it('shows the plan and a successful result after submitting', async () => {
+  it('shows the user message immediately, then the plan and a successful result once done', async () => {
     setFetch(
       mockFetchByUrl({
         post: sseResponse([
@@ -157,9 +169,21 @@ describe('Chat', () => {
     renderChat();
     submitIntent('add hello.txt');
 
+    expect(screen.getByText('add hello.txt')).toBeTruthy();
+
     await waitFor(() => expect(screen.getByText('Succès')).toBeTruthy());
     expect(screen.getByText('Add hello.txt')).toBeTruthy();
     expect(screen.getByText(/hello.txt written/)).toBeTruthy();
+  });
+
+  it('clears the input immediately on submission (optimistic send)', async () => {
+    setFetch(mockFetchByUrl({}));
+    renderChat();
+
+    submitIntent('add hello.txt');
+
+    const textarea = screen.getByPlaceholderText(/Ex :/) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('');
   });
 
   it('shows a failed result when the orchestrator reports success: false', async () => {
@@ -385,62 +409,91 @@ describe('Chat', () => {
   });
 
   describe('history', () => {
-    it('shows past turns fetched on mount, most recent first', async () => {
+    it('shows past turns fetched on mount, in chronological order', async () => {
       setFetch(mockFetchByUrl({
-        history: new Response(JSON.stringify({ turns: [FAKE_TURN] }), { status: 200 }),
+        history: new Response(JSON.stringify({ turns: [FAKE_TURN, FAKE_TURN_2] }), { status: 200 }),
       }));
 
       renderChat();
 
-      await waitFor(() => expect(screen.getByText('add goodbye.txt')).toBeTruthy());
+      await waitFor(() => expect(screen.getByText('add second.txt')).toBeTruthy());
+      const bubbles = screen.getAllByText(/^add (goodbye|second)\.txt$/);
+      expect(bubbles.map((el) => el.textContent)).toEqual(['add goodbye.txt', 'add second.txt']);
     });
 
-    it("expanding a turn shows its plan and result", async () => {
+    it("shows a history turn's plan and result directly, with no expand step needed", async () => {
       setFetch(mockFetchByUrl({
         history: new Response(JSON.stringify({ turns: [FAKE_TURN] }), { status: 200 }),
       }));
 
       renderChat();
+
       await waitFor(() => expect(screen.getByText('add goodbye.txt')).toBeTruthy());
-
-      fireEvent.click(screen.getByText('add goodbye.txt'));
-
       expect(screen.getByText(/goodbye.txt written/)).toBeTruthy();
     });
 
-    it('refreshes after a successful submission', async () => {
+    it('folds a finished exchange into the thread without a history refetch', async () => {
       const fetchMock = setFetch(mockFetchByUrl({
         history: new Response(JSON.stringify({ turns: [] }), { status: 200 }),
       }));
 
       renderChat();
-      await waitFor(() => expect(screen.getByText(/Aucune demande dans l'historique/)).toBeTruthy());
+      await waitFor(() => expect(screen.getByText(/Aucune conversation pour l'instant/)).toBeTruthy());
 
       submitIntent('add hello.txt');
       await waitFor(() => expect(screen.getByText('Succès')).toBeTruthy());
+      expect(screen.getByText('add hello.txt')).toBeTruthy();
 
-      const historyCalls = fetchMock.mock.calls.filter(
-        (call) => (call[1] as RequestInit | undefined)?.method !== 'POST' && !call[0].toString().includes('/files'),
-      );
-      expect(historyCalls.length).toBeGreaterThan(1);
+      const historyGetCalls = fetchMock.mock.calls.filter((call) => {
+        const url = call[0].toString();
+        const method = (call[1] as RequestInit | undefined)?.method ?? 'GET';
+        return method === 'GET' && !url.includes('/files') && !url.includes('/file?path=');
+      });
+      expect(historyGetCalls).toHaveLength(1);
     });
   });
 
   describe('files', () => {
-    it('shows the files fetched on mount', async () => {
+    it('keeps the files panel closed by default', async () => {
+      setFetch(mockFetchByUrl({
+        files: new Response(JSON.stringify({ files: ['hello.txt'] }), { status: 200 }),
+      }));
+      renderChat();
+      await waitFor(() => expect(screen.getByRole('button', { name: /Fichiers \(1\)/ })).toBeTruthy());
+      expect(screen.queryByText('hello.txt')).toBeNull();
+    });
+
+    it('shows the files fetched on mount once the panel is opened', async () => {
       setFetch(mockFetchByUrl({
         files: new Response(JSON.stringify({ files: ['hello.txt'] }), { status: 200 }),
       }));
 
       renderChat();
+      await waitFor(() => expect(screen.getByRole('button', { name: /Fichiers \(1\)/ })).toBeTruthy());
+      openFilesPanel();
 
-      await waitFor(() => expect(screen.getByText('hello.txt')).toBeTruthy());
+      expect(screen.getByText('hello.txt')).toBeTruthy();
     });
 
     it('shows an empty state when there are no files', async () => {
       setFetch(mockFetchByUrl({}));
       renderChat();
+      openFilesPanel();
       await waitFor(() => expect(screen.getByText(/Aucun fichier pour l'instant/)).toBeTruthy());
+    });
+
+    it('closes the files panel when Fermer is clicked', async () => {
+      setFetch(mockFetchByUrl({
+        files: new Response(JSON.stringify({ files: ['hello.txt'] }), { status: 200 }),
+      }));
+      renderChat();
+      await waitFor(() => expect(screen.getByRole('button', { name: /Fichiers \(1\)/ })).toBeTruthy());
+      openFilesPanel();
+      expect(screen.getByText('hello.txt')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: /Fermer/ }));
+
+      expect(screen.queryByText('hello.txt')).toBeNull();
     });
 
     it('shows a file\'s content when clicked, and hides it on a second click', async () => {
@@ -450,7 +503,9 @@ describe('Chat', () => {
       }));
 
       renderChat();
-      await waitFor(() => expect(screen.getByText('hello.txt')).toBeTruthy());
+      await waitFor(() => expect(screen.getByRole('button', { name: /Fichiers \(1\)/ })).toBeTruthy());
+      openFilesPanel();
+      expect(screen.getByText('hello.txt')).toBeTruthy();
 
       fireEvent.click(screen.getByText('hello.txt'));
       await waitFor(() => expect(screen.getByText('Hello!')).toBeTruthy());

@@ -327,4 +327,32 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Pas de limite de taille/troncature d'une sortie très longue. Pas de mise en pause/annulation d'une tâche en cours depuis l'UI. Pas de coloration stdout/stderr distincte (un seul bloc de texte brut).
 
-<!-- Prochaine entrée : D-23 -->
+### D-23 — Groq par défaut, Ollama en second adaptateur (2026-08-22)
+
+**Statut :** acceptée
+
+**Contexte :** `apps/api` utilisait `AnthropicIntelligenceProvider` comme moteur par défaut depuis D-5, mais le compte configuré n'a jamais eu de crédit — chaque vérification en conditions réelles de la session (D-19 à D-22) a buté sur ce même blocage, sans jamais pouvoir observer une vraie tâche s'exécuter de bout en bout. L'utilisateur a demandé de basculer vers Groq et Ollama comme moteurs.
+
+**Décision :** `GroqIntelligenceProvider` (nouveau package `packages/providers/intelligence-groq`) devient le moteur par défaut d'`apps/api` (`naminto-core.module.ts`). L'API de Groq est compatible OpenAI (même forme de requête/réponse), donc cet adaptateur reprend le patron de `intelligence-openai` presque à l'identique (fetch brut, pas de SDK vendor, `GROQ_API_KEY`, `baseUrl` par défaut `https://api.groq.com/openai/v1/chat/completions`, modèle par défaut `llama-3.3-70b-versatile`) — implémentation dupliquée volontairement, pas de classe de base partagée, même convention que les adaptateurs existants. `OllamaIntelligenceProvider` (nouveau package `packages/providers/intelligence-ollama`) devient le second adaptateur immédiatement disponible : local, gratuit, aucune clé API — appelle l'API native d'Ollama (`POST {baseUrl}/api/chat`, pas le mode de compatibilité OpenAI, pour ne pas supposer qu'il est activé), avec un message d'erreur explicite mentionnant `ollama serve`/`ollama pull` si la connexion échoue. `intelligence-anthropic` et `intelligence-openai` restent dans le dépôt, implémentés et testés, simplement plus câblés par défaut — le contrat `IntelligenceProvider` ne change pas.
+
+**Vérification :** `npm run check` intégralement vert, avec les nouveaux tests unitaires des deux adaptateurs (`fetch` mocké, même patron que `intelligence-openai`). Vérification en conditions réelles conditionnée à ce que l'utilisateur fournisse une vraie `GROQ_API_KEY` (et, pour Ollama, une instance locale lancée avec un modèle tiré) — même statut que les autres clés vendor de cette session (E2B, Google OAuth) : implémenté et testé, en attente d'une étape manuelle utilisateur pour la vérification bout en bout.
+
+**Alternatives envisagées :** Introduire un switch par variable d'environnement pour choisir le moteur actif au runtime (rejeté pour l'instant : aucun pattern de ce type n'existe ailleurs dans `apps/api` — chaque provider est un seul `new XxxProvider()` codé en dur dans `naminto-core.module.ts` — en ajouter un ici aurait été un précédent architectural nouveau, non demandé).
+
+**Conséquences :** Toute vérification en conditions réelles future utilisant l'IA (streaming D-21, sortie en direct D-22, etc.) dépend désormais de `GROQ_API_KEY`, plus d'`ANTHROPIC_API_KEY`.
+
+### D-24 — Refonte du chat en vraie interface de conversation (2026-08-22)
+
+**Statut :** acceptée
+
+**Contexte :** L'écran de chat (`apps/web/app/Chat.tsx`) était un formulaire en haut de page suivi de sections Historique/Fichiers séparées — pas une interface de conversation. L'utilisateur a demandé une refonte pour que l'interface ressemble à un vrai outil d'IA (ChatGPT/Claude).
+
+**Décision :** Refonte de présentation et de structure du DOM uniquement — le contrat SSE (D-21/D-22), l'authentification, et les endpoints existants ne changent pas. Disposition en colonne plein écran : en-tête fixe, fil de conversation scrollable au centre, zone de saisie fixée en bas. Chaque tour d'historique devient un échange dans le fil (bulle utilisateur alignée à droite, bulle assistant alignée à gauche réutilisant `PlanResult.tsx` tel quel), en **ordre chronologique croissant** (le plus ancien en haut), toujours visible sans repli — remplace le tri décroissant avec `<details>` repliables. L'échange en cours apparaît immédiatement de façon optimiste (bulle utilisateur affichée avant même la réponse serveur, `currentIntentRef` pour éviter les problèmes de closure obsolète dans le gestionnaire d'événements SSE) puis se construit en direct dans la bulle assistant à partir des événements déjà gérés (D-21/D-22). Une fois `done` reçu, l'exchange est plié **directement depuis la charge utile SSE** (`plan`/`result`/`turnId` déjà reçus) dans `historyState`, sans nouvel appel réseau à l'historique — un refetch aurait pu entrer en course avec le rendu (affichage en double, ou brièvement absent selon l'ordre de résolution des promesses, constaté pendant l'écriture des tests où le mock d'historique renvoyait toujours une liste statique). Auto-scroll vers le bas à chaque nouvel événement (`useEffect` sur une ref du conteneur). Fichiers reste une section séparée mais devient un panneau replié par défaut, ouvert via un bouton dans l'en-tête (« Fichiers (n) ») — évite de polluer visuellement le fil de conversation qui devient l'élément central de l'écran.
+
+**Vérification :** `npm run check` intégralement vert — 53 tests `apps/web` (23 pour `Chat.test.tsx`, réécrit pour le nouveau comportement : ordre chronologique, pas de repli, panneau Fichiers fermé par défaut, une seule requête GET d'historique par montage). Vérification visuelle en navigateur réel prévue une fois D-23 câblé avec une vraie `GROQ_API_KEY`.
+
+**Alternatives envisagées :** Panneau Fichiers en barre latérale toujours visible (rejeté : réduirait la largeur du fil de conversation, élément central de la demande, pour une fonctionnalité secondaire non concernée par la refonte demandée). Rafraîchir l'historique par un nouvel appel réseau après chaque soumission, comme avant D-24 (rejeté après avoir constaté le risque de course avec les mocks de test — la charge utile SSE `done` contient déjà tout ce qu'un refetch aurait renvoyé).
+
+**Conséquences :** `ConversationTurn` synthétisé côté client à la fin d'un échange doit rester en phase avec la forme exacte que `GET /plan/:projectId` renverrait — toute évolution future de ce endpoint doit être répercutée ici aussi.
+
+<!-- Prochaine entrée : D-25 -->
