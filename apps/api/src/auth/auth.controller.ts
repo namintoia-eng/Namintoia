@@ -6,12 +6,15 @@ import {
   Get,
   Inject,
   Post,
+  Query,
+  Redirect,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import type { Session, User, UserSystem } from '@namintoia/naminto-core';
 import { USER_SYSTEM } from '../naminto-core/naminto-core.module';
 import { CurrentUser } from './current-user.decorator';
+import { GoogleOAuthService } from './google-oauth.service';
 import { SessionAuthGuard } from './session-auth.guard';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -19,7 +22,10 @@ const MIN_PASSWORD_LENGTH = 8;
 
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(USER_SYSTEM) private readonly userSystem: UserSystem) {}
+  constructor(
+    @Inject(USER_SYSTEM) private readonly userSystem: UserSystem,
+    @Inject(GoogleOAuthService) private readonly googleOAuth: GoogleOAuthService,
+  ) {}
 
   @Post('register')
   async register(@Body() body: unknown): Promise<User> {
@@ -49,6 +55,43 @@ export class AuthController {
   me(@CurrentUser() user: User): User {
     return user;
   }
+
+  /**
+   * No try/catch here on purpose: if Google isn't configured, this throws
+   * before the browser ever leaves the app, so a normal Nest JSON error
+   * response is fine (same posture as /plan surfacing a missing
+   * ANTHROPIC_API_KEY). Only the callback below needs to swallow errors.
+   */
+  @Get('google')
+  @Redirect()
+  googleLogin(): { url: string } {
+    return { url: this.googleOAuth.buildAuthorizationUrl() };
+  }
+
+  /**
+   * The browser is already off-domain (returning from Google) by the time
+   * this runs, so a JSON error response would be a dead end for the user
+   * — every failure path redirects back to the app with `?error=` instead
+   * of throwing. The session token rides the URL *fragment* (`#token=`),
+   * never a query param: fragments are never sent to the server or logged
+   * anywhere, unlike query params.
+   */
+  @Get('google/callback')
+  @Redirect()
+  async googleCallback(@Query() query: unknown): Promise<{ url: string }> {
+    const appUrl = process.env['APP_URL'] ?? 'http://localhost:3000';
+    try {
+      const { code, state } = extractGoogleCallbackParams(query);
+      if (!this.googleOAuth.verifyState(state)) {
+        throw new Error('Invalid or expired Google sign-in attempt.');
+      }
+      const identity = await this.googleOAuth.exchangeCode(code);
+      const session = await this.userSystem.authenticateExternal({ provider: 'google', ...identity });
+      return { url: `${appUrl}/#token=${encodeURIComponent(session.token)}` };
+    } catch (error) {
+      return { url: `${appUrl}/?error=${encodeURIComponent(errorMessage(error))}` };
+    }
+  }
 }
 
 function extractCredentials(body: unknown): { email: string; password: string } {
@@ -68,6 +111,21 @@ function extractCredentials(body: unknown): { email: string; password: string } 
   }
 
   return { email, password };
+}
+
+function extractGoogleCallbackParams(query: unknown): { code: string; state: string | undefined } {
+  if (typeof query !== 'object' || query === null) {
+    throw new Error('Missing Google callback parameters.');
+  }
+  const record = query as Record<string, unknown>;
+
+  const code = record['code'];
+  if (typeof code !== 'string' || code.length === 0) {
+    throw new Error('Missing Google authorization code.');
+  }
+
+  const state = record['state'];
+  return { code, state: typeof state === 'string' ? state : undefined };
 }
 
 function errorMessage(error: unknown): string {

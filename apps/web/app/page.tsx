@@ -17,8 +17,33 @@ type AuthState =
 
 export default function HomePage() {
   const [auth, setAuth] = useState<AuthState>({ status: 'checking' });
+  const [authError, setAuthError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
+    // The Google OAuth callback (apps/api/src/auth/auth.controller.ts)
+    // redirects back here with the session token in the URL *fragment*
+    // (never sent to any server, never logged) on success, or an `error`
+    // query param on failure. Both take priority over any stored token —
+    // a fresh redirect should never lose to stale localStorage state.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const hashToken = hashParams.get('token');
+    const errorParam = new URLSearchParams(window.location.search).get('error');
+
+    if (hashToken || errorParam) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+
+    if (hashToken) {
+      handleAuthenticated(hashToken);
+      return;
+    }
+
+    if (errorParam) {
+      setAuthError(errorParam);
+      setAuth({ status: 'anonymous' });
+      return;
+    }
+
     const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
     if (!stored) {
       setAuth({ status: 'anonymous' });
@@ -89,7 +114,7 @@ export default function HomePage() {
   }
 
   if (auth.status === 'anonymous') {
-    return <AuthForm onAuthenticated={handleAuthenticated} />;
+    return <AuthForm onAuthenticated={handleAuthenticated} initialError={authError} />;
   }
 
   if (auth.project === null) {

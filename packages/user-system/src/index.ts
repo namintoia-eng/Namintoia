@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } fr
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type { Session, User, UserSystem } from '@namintoia/naminto-core';
+import type { ExternalIdentity, Session, User, UserSystem } from '@namintoia/naminto-core';
 
 const scrypt = promisify(scryptCallback);
 
@@ -14,8 +14,11 @@ interface StoredUser {
   id: string;
   email: string;
   createdAt: string;
-  passwordHash: string;
-  passwordSalt: string;
+  // Absent for accounts created via an external identity provider only
+  // (D-18) — never had a password to check against.
+  passwordHash?: string;
+  passwordSalt?: string;
+  externalAccounts?: { provider: string; externalId: string }[];
 }
 
 interface StoredSession {
@@ -95,6 +98,47 @@ export class LocalUserSystem implements UserSystem {
     });
   }
 
+  async authenticateExternal(identity: ExternalIdentity): Promise<Session> {
+    return this.runExclusive(async () => {
+      const normalizedEmail = normalizeEmail(identity.email);
+      const users = await this.readJson<StoredUser>('users.json');
+      let stored = users.find((user) => user.email === normalizedEmail);
+
+      if (stored) {
+        const accounts = stored.externalAccounts ?? [];
+        const alreadyLinked = accounts.some(
+          (account) => account.provider === identity.provider && account.externalId === identity.externalId,
+        );
+        if (!alreadyLinked) {
+          stored.externalAccounts = [
+            ...accounts,
+            { provider: identity.provider, externalId: identity.externalId },
+          ];
+          await this.writeJson('users.json', users);
+        }
+      } else {
+        stored = {
+          id: randomUUID(),
+          email: normalizedEmail,
+          createdAt: new Date().toISOString(),
+          externalAccounts: [{ provider: identity.provider, externalId: identity.externalId }],
+        };
+        users.push(stored);
+        await this.writeJson('users.json', users);
+      }
+
+      const session: StoredSession = {
+        token: randomUUID(),
+        userId: stored.id,
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+      };
+      const sessions = await this.readJson<StoredSession>('sessions.json');
+      sessions.push(session);
+      await this.writeJson('sessions.json', sessions);
+      return session;
+    });
+  }
+
   async verifySession(token: string): Promise<User | null> {
     const sessions = await this.readJson<StoredSession>('sessions.json');
     const session = sessions.find((s) => s.token === token);
@@ -132,6 +176,9 @@ export class LocalUserSystem implements UserSystem {
 }
 
 async function passwordMatches(password: string, stored: StoredUser): Promise<boolean> {
+  if (!stored.passwordHash || !stored.passwordSalt) {
+    return false;
+  }
   const candidateHash = await hashPassword(password, stored.passwordSalt);
   const storedBuf = Buffer.from(stored.passwordHash, 'hex');
   const candidateBuf = Buffer.from(candidateHash, 'hex');

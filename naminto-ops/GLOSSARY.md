@@ -30,8 +30,9 @@
 | **ConversationTurn** | Un échange complet capturé par le Memory System : intention utilisateur → `Plan` produit par le Reasoning Engine → `OrchestrationResult` produit par l'Agent Orchestrator, horodaté. |
 | **FileSystem** | Interface d'abstraction du File System : sauvegarde et relit les `ProjectFile` d'un projet une fois le sandbox de la session détruit. Implémentation MVP par défaut : `LocalFileSystem` (un dossier local par projet, `DECISIONS.md` D-12). |
 | **ProjectFile** | Un fichier capturé depuis le `SandboxSession` d'un `Plan` à la fin de son exécution — chemin relatif à `PROJECT_WORKING_DIRECTORY`, plus son contenu. |
-| **UserSystem** | Interface d'abstraction du User System : inscription, authentification, vérification de session. Implémentation MVP par défaut : `LocalUserSystem` (comptes/sessions en fichier local, mots de passe hashés scrypt, `DECISIONS.md` D-13). |
-| **Session** | Jeton de session opaque émis par `UserSystem.authenticate()`, associé à un `userId` et une expiration — pas un JWT (D-13). |
+| **UserSystem** | Interface d'abstraction du User System : inscription, authentification (mot de passe ou fournisseur externe), vérification de session. Implémentation MVP par défaut : `LocalUserSystem` (comptes/sessions en fichier local, mots de passe hashés scrypt, `DECISIONS.md` D-13/D-18). |
+| **Session** | Jeton de session opaque émis par `UserSystem.authenticate()`/`authenticateExternal()`, associé à un `userId` et une expiration — pas un JWT (D-13). |
+| **ExternalIdentity** | Identité confirmée par un fournisseur OAuth2/OIDC externe (`provider`, `externalId`, `email`) passée à `UserSystem.authenticateExternal()` — Google est le premier fournisseur branché (`DECISIONS.md` D-18). L'appelant ne doit la construire qu'après vérification de l'email par le fournisseur ; le contrat lui-même reste vendor-neutre. |
 | **Vibecoding** | Le mode de travail employé pour *construire* Naminto IA lui-même : un agent IA outillé (ce kit) qui code de façon itérative, testée et documentée. À ne pas confondre avec le produit final. |
 
 ## Règle de gouvernance du glossaire

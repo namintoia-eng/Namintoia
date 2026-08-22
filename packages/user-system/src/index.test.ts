@@ -92,4 +92,67 @@ describe('LocalUserSystem', () => {
     const users = JSON.parse(raw) as { email: string }[];
     expect(users.map((u) => u.email).sort()).toEqual(['a@example.com', 'b@example.com', 'c@example.com']);
   });
+
+  describe('authenticateExternal', () => {
+    it('creates a new account from an external identity and returns a session', async () => {
+      const session = await userSystem.authenticateExternal({
+        provider: 'google',
+        externalId: 'google-sub-1',
+        email: 'Grace@Example.com',
+      });
+
+      expect(session.token).toBeTruthy();
+      const user = await userSystem.verifySession(session.token);
+      expect(user?.email).toBe('grace@example.com');
+    });
+
+    it('links to an existing password account by email, case-insensitively', async () => {
+      const existing = await userSystem.register('heidi@example.com', 'password123');
+
+      const session = await userSystem.authenticateExternal({
+        provider: 'google',
+        externalId: 'google-sub-2',
+        email: 'Heidi@Example.com',
+      });
+
+      const user = await userSystem.verifySession(session.token);
+      expect(user?.id).toBe(existing.id);
+    });
+
+    it('lets a linked account still authenticate with its original password', async () => {
+      await userSystem.register('ivan@example.com', 'password123');
+      await userSystem.authenticateExternal({
+        provider: 'google',
+        externalId: 'google-sub-3',
+        email: 'ivan@example.com',
+      });
+
+      const session = await userSystem.authenticate('ivan@example.com', 'password123');
+      expect(session.token).toBeTruthy();
+    });
+
+    it('rejects any password for a Google-only account', async () => {
+      await userSystem.authenticateExternal({
+        provider: 'google',
+        externalId: 'google-sub-4',
+        email: 'judy@example.com',
+      });
+
+      await expect(userSystem.authenticate('judy@example.com', 'whatever1')).rejects.toThrow(
+        /invalid email or password/,
+      );
+    });
+
+    it('does not duplicate a user for concurrent external logins with the same new email', async () => {
+      await Promise.all([
+        userSystem.authenticateExternal({ provider: 'google', externalId: 'g1', email: 'ken@example.com' }),
+        userSystem.authenticateExternal({ provider: 'google', externalId: 'g1', email: 'ken@example.com' }),
+        userSystem.authenticateExternal({ provider: 'google', externalId: 'g1', email: 'ken@example.com' }),
+      ]);
+
+      const raw = await readFile(join(baseDir, 'users.json'), 'utf8');
+      const users = JSON.parse(raw) as { email: string }[];
+      expect(users.filter((u) => u.email === 'ken@example.com')).toHaveLength(1);
+    });
+  });
 });

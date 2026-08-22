@@ -24,10 +24,12 @@ describe('HomePage', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.history.pushState({}, '', '/');
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    window.history.pushState({}, '', '/');
     cleanup();
   });
 
@@ -95,5 +97,26 @@ describe('HomePage', () => {
     await waitFor(() => expect(screen.getByPlaceholderText('email@exemple.com')).toBeTruthy());
     expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(PROJECT_STORAGE_KEY)).toBeNull();
+  });
+
+  it('authenticates from a Google OAuth callback token in the URL fragment', async () => {
+    window.history.pushState({}, '', '/#token=google-session-token');
+    globalThis.fetch = mockFetchByUrl({});
+
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByPlaceholderText('Nom du projet')).toBeTruthy());
+    expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe('google-session-token');
+    expect(window.location.hash).toBe('');
+  });
+
+  it('shows the Google OAuth error and strips it from the URL', async () => {
+    window.history.pushState({}, '', '/?error=Google%20sign-in%20failed.');
+
+    render(<HomePage />);
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.getByText(/Google sign-in failed/)).toBeTruthy();
+    expect(window.location.search).toBe('');
   });
 });

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AuthForm from './AuthForm';
 
 function fillCredentials(email: string, password: string): void {
@@ -89,5 +89,39 @@ describe('AuthForm', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByText(/already registered/)).toBeTruthy();
     expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it('shows the initialError prop as an alert on mount', () => {
+    render(<AuthForm onAuthenticated={vi.fn()} initialError="Google sign-in failed." />);
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/Google sign-in failed/)).toBeTruthy();
+  });
+
+  describe('Google sign-in', () => {
+    const originalLocation = window.location;
+
+    beforeEach(() => {
+      // jsdom's window.location isn't reassignable by simple `=` (it's a
+      // getter-only accessor); redefine the property instead so this test
+      // can assert the href a real click would navigate to, without jsdom
+      // attempting (and failing) a real navigation.
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: { ...originalLocation, href: '' },
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    });
+
+    it('navigates to /auth/google when the Google button is clicked', () => {
+      render(<AuthForm onAuthenticated={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: /Continuer avec Google/ }));
+      expect(window.location.href).toBe('http://localhost:3001/auth/google');
+    });
   });
 });

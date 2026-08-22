@@ -102,6 +102,9 @@ function fakeUserSystem(): UserSystem {
     authenticate: async () => {
       throw new Error('not used in these tests');
     },
+    authenticateExternal: async () => {
+      throw new Error('not used in these tests');
+    },
     verifySession: async () => USER_A,
   };
 }
