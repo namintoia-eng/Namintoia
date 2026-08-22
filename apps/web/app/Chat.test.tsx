@@ -310,6 +310,42 @@ describe('Chat', () => {
       await waitFor(() => expect(screen.getByText('Succès')).toBeTruthy());
     });
 
+    it('shows command output growing live as task_output events arrive, before task_complete', async () => {
+      let releaseCompletion: (() => void) | undefined;
+      const completion = new Promise<void>((resolve) => {
+        releaseCompletion = resolve;
+      });
+
+      setFetch(
+        mockFetchByUrl({
+          post: new Response(
+            new ReadableStream({
+              async start(controller) {
+                const encoder = new TextEncoder();
+                const send = (event: unknown) =>
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                send({ type: 'planning' });
+                send({ type: 'plan_ready', plan: FAKE_PLAN });
+                send({ type: 'task_start', role: 'coding', instruction: 'write hello.txt' });
+                send({ type: 'task_output', role: 'coding', data: 'writing file' });
+                send({ type: 'task_output', role: 'coding', data: '...\n' });
+                await completion;
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
+        }),
+      );
+
+      renderChat();
+      submitIntent('add hello.txt');
+
+      await waitFor(() => expect(screen.getByText('writing file...')).toBeTruthy());
+
+      releaseCompletion?.();
+    });
+
     it('accumulates multiple tasks in arrival order', async () => {
       let releaseCompletion: (() => void) | undefined;
       const completion = new Promise<void>((resolve) => {

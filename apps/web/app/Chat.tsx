@@ -25,6 +25,7 @@ type PlanStreamEvent =
   | { type: 'planning' }
   | { type: 'plan_ready'; plan: Plan }
   | { type: 'task_start'; role: AgentRole; instruction: string }
+  | { type: 'task_output'; role: AgentRole; data: string }
   | { type: 'task_complete'; role: AgentRole; success: boolean; output: string }
   | { type: 'done'; plan: Plan; result: OrchestrationResult; turnId: string }
   | { type: 'error'; message: string };
@@ -174,11 +175,26 @@ export default function Chat({
                 ...prev,
                 tasks: [
                   ...prev.tasks,
-                  { role: event.role, instruction: event.instruction, status: 'running' },
+                  { role: event.role, instruction: event.instruction, status: 'running', output: '' },
                 ],
               }
             : prev,
         );
+        return;
+      case 'task_output':
+        setState((prev) => {
+          if (prev.status !== 'streaming' || prev.tasks.length === 0) {
+            return prev;
+          }
+          const tasks = [...prev.tasks];
+          const lastIndex = tasks.length - 1;
+          const last = tasks[lastIndex];
+          if (!last) {
+            return prev;
+          }
+          tasks[lastIndex] = { ...last, output: (last.output ?? '') + event.data };
+          return { ...prev, tasks };
+        });
         return;
       case 'task_complete':
         setState((prev) => {
@@ -336,16 +352,23 @@ export default function Chat({
               </p>
             )}
             {state.tasks.length > 0 && (
-              <ul className="flex flex-col gap-2">
+              <ul className="flex flex-col gap-3">
                 {state.tasks.map((task, index) => (
-                  <li key={index} className="flex items-center gap-2 text-sm text-zinc-300">
-                    <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-xs uppercase tracking-wide text-zinc-400">
-                      {task.role}
-                    </span>
-                    <span className="flex-1">{task.instruction}</span>
-                    {task.status === 'running' && <span className="shrink-0 text-zinc-500">en cours…</span>}
-                    {task.status === 'success' && <span className="shrink-0 text-emerald-400">✓</span>}
-                    {task.status === 'failed' && <span className="shrink-0 text-red-400">✗</span>}
+                  <li key={index} className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-sm text-zinc-300">
+                      <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-xs uppercase tracking-wide text-zinc-400">
+                        {task.role}
+                      </span>
+                      <span className="flex-1">{task.instruction}</span>
+                      {task.status === 'running' && <span className="shrink-0 text-zinc-500">en cours…</span>}
+                      {task.status === 'success' && <span className="shrink-0 text-emerald-400">✓</span>}
+                      {task.status === 'failed' && <span className="shrink-0 text-red-400">✗</span>}
+                    </div>
+                    {task.output && (
+                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
+                        {task.output}
+                      </pre>
+                    )}
                   </li>
                 ))}
               </ul>

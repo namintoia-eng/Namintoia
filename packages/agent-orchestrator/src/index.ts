@@ -62,7 +62,10 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
       for (const task of plan.tasks) {
         const agent = this.requireAgent(task.agentRole);
         onTaskEvent?.({ type: 'task_start', role: task.agentRole, instruction: task.instruction });
-        let result = await agent.run(task, { sandboxSession: session });
+        let result = await agent.run(task, {
+          sandboxSession: session,
+          onOutput: (data) => onTaskEvent?.({ type: 'task_output', role: task.agentRole, data }),
+        });
         onTaskEvent?.({
           type: 'task_complete',
           role: result.role,
@@ -118,7 +121,10 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
       };
 
       onTaskEvent?.({ type: 'task_start', role: debugTask.agentRole, instruction: debugTask.instruction });
-      const debugResult = await debugAgent.run(debugTask, { sandboxSession: session });
+      const debugResult = await debugAgent.run(debugTask, {
+        sandboxSession: session,
+        onOutput: (data) => onTaskEvent?.({ type: 'task_output', role: debugTask.agentRole, data }),
+      });
       onTaskEvent?.({
         type: 'task_complete',
         role: debugResult.role,

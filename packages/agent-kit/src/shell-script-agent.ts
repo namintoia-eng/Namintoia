@@ -57,6 +57,7 @@ export abstract class ShellScriptAgent implements Agent {
     const onOutput = (chunk: SandboxOutputChunk): void => {
       if (chunk.stream === 'stdout' || chunk.stream === 'stderr') {
         output.push(chunk.data);
+        context.onOutput?.(chunk.data);
       }
     };
 

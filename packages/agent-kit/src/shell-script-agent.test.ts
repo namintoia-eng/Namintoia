@@ -26,7 +26,10 @@ function fakeIntelligenceProvider(content: string): IntelligenceProvider {
 function fakeContext(
   result: SandboxExecutionResult,
   chunks: SandboxOutputChunk[] = [],
-): AgentRunContext & { session: SandboxSession & { lastRequest?: SandboxCommandRequest } } {
+): AgentRunContext & {
+  session: SandboxSession & { lastRequest?: SandboxCommandRequest };
+  forwardedOutput: string[];
+} {
   const session: SandboxSession & { lastRequest?: SandboxCommandRequest } = {
     id: 'fake-session',
     async execute(request, onOutput) {
@@ -44,7 +47,13 @@ function fakeContext(
     },
     async close() {},
   };
-  return { sandboxSession: session, session };
+  const forwardedOutput: string[] = [];
+  return {
+    sandboxSession: session,
+    session,
+    forwardedOutput,
+    onOutput: (data) => forwardedOutput.push(data),
+  };
 }
 
 describe('ShellScriptAgent', () => {
@@ -107,6 +116,20 @@ describe('ShellScriptAgent', () => {
     const result = await agent.run({ agentRole: 'coding', instruction: 'add a feature' }, context);
 
     expect(result.success).toBe(false);
+  });
+
+  it("forwards stdout/stderr chunks to context.onOutput as they arrive, but not status chunks", async () => {
+    const context = fakeContext({ exitCode: 0, timedOut: false, durationMs: 5 }, [
+      { stream: 'status', data: 'started' },
+      { stream: 'stdout', data: 'writing file...\n' },
+      { stream: 'stderr', data: 'a warning\n' },
+      { stream: 'status', data: 'completed' },
+    ]);
+    const agent = new TestAgent(fakeIntelligenceProvider('echo hi'));
+
+    await agent.run({ agentRole: 'coding', instruction: 'add a hello function' }, context);
+
+    expect(context.forwardedOutput).toEqual(['writing file...\n', 'a warning\n']);
   });
 
   it('never calls close() on the session — that is the orchestrator\'s job', async () => {

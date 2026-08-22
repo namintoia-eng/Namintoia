@@ -11,9 +11,13 @@ export interface AgentTaskResult {
  * Per-run context an orchestrator hands to every agent invocation. Carries
  * the SandboxSession shared across a whole Plan's tasks, so a testing task
  * sees the files a coding task just wrote instead of an empty sandbox.
+ * `onOutput` (DECISIONS.md D-22) lets an agent forward live stdout/stderr
+ * text as it runs — optional, so agents that don't produce incremental
+ * output (or orchestrators that don't care) are unaffected.
  */
 export interface AgentRunContext {
   sandboxSession: SandboxSession;
+  onOutput?: (data: string) => void;
 }
 
 /** A specialized agent (Coding, Testing, Debug, ...) that can run one AgentTask. */
@@ -39,6 +43,7 @@ export interface OrchestrationResult {
  */
 export type TaskProgressEvent =
   | { type: 'task_start'; role: AgentRole; instruction: string }
+  | { type: 'task_output'; role: AgentRole; data: string }
   | { type: 'task_complete'; role: AgentRole; success: boolean; output: string };
 
 /**

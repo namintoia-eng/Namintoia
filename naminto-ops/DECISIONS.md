@@ -313,4 +313,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Pas d'affichage en direct de la sortie partielle d'une commande à l'intérieur d'une tâche en cours (seulement démarrage/fin de tâche). Pas de reconnexion automatique si le flux SSE est interrompu en cours de route.
 
-<!-- Prochaine entrée : D-22 -->
+### D-22 — Sortie de commande en direct pendant une tâche (2026-08-22)
+
+**Statut :** acceptée
+
+**Contexte :** D-21 diffuse la progression par étape (`task_start`/`task_complete`) mais aucune sortie de commande n'était visible avant la toute fin d'une tâche — juste « en cours… ». L'utilisateur a choisi de combler ce manque comme extension naturelle du streaming D-21.
+
+**Décision :** Le tuyau existait déjà à la couche la plus basse et n'était simplement pas relié plus haut : `SandboxSession.execute()` acceptait déjà un `onOutput?: (chunk: SandboxOutputChunk) => void` appelé **en direct** (confirmé dans `packages/providers/sandbox-e2b/src/index.ts`, où `onStdout`/`onStderr` du SDK E2B livrent vraiment au fil de l'eau), et `ShellScriptAgent` (`packages/agent-kit/src/shell-script-agent.ts`, base commune de `CodingAgent`/`TestingAgent`/`DebugAgent`) l'utilisait déjà — juste pour accumuler `output` en local, sans jamais le remonter. Nouvelle variante `TaskProgressEvent` : `{type:'task_output'; role; data}` — uniquement pour les chunks `stdout`/`stderr` de `SandboxOutputChunk`, jamais les chunks `status` (`started`/`completed`/`timed_out`/`killed`, qui feraient doublon avec `task_start`/`task_complete`). `AgentRunContext` gagne `onOutput?: (data: string) => void` (texte simple, pas le `SandboxOutputChunk` complet). `SequentialAgentOrchestrator` branche ce callback sur `onTaskEvent` pour chaque appel `agent.run()`, y compris pendant les tentatives de la boucle de débogage. `apps/api/src/plan/plan.controller.ts` n'a nécessité **aucune modification** : `PlanStreamEvent` inclut déjà `TaskProgressEvent` comme membre d'union, donc `task_output` traverse automatiquement le flux SSE existant. Côté `apps/web/app/Chat.tsx`, chaque `task_output` complète le champ `output` de la tâche en cours (dernier élément de la liste, même garantie de séquentialité stricte qu'en D-21) ; `task_complete` réécrit ce champ avec la valeur finale plutôt que de la compléter, pour éviter toute dérive si un chunk venait à manquer. Un bloc `<pre>` apparaît sous une tâche dès que sa sortie est non vide, quel que soit son statut — couvre naturellement le cas « toujours en cours mais avec de la sortie visible ».
+
+**Vérification :** `npm run check` intégralement vert, avec les nouveaux tests unitaires (`packages/agent-kit/src/shell-script-agent.test.ts`, `packages/agent-orchestrator/src/index.test.ts`, `apps/api/src/plan/plan.controller.spec.ts`, `apps/web/app/Chat.test.tsx`) comme preuve principale du comportement. Le blocage crédit Anthropic déjà connu empêche toujours qu'une vraie tâche s'exécute en conditions réelles (le Reasoning Engine échoue avant qu'aucune tâche ne démarre) — une démonstration `curl`/navigateur de sortie en direct n'est donc pas possible dans cet environnement pour l'instant, même limite documentée que D-19/D-20/D-21.
+
+**Alternatives envisagées :** Forwarder aussi les chunks `status` comme événements `task_output` (rejeté : ferait doublon avec `task_start`/`task_complete` déjà émis par l'orchestrateur, sans information supplémentaire pour le client).
+
+**Conséquences :** Pas de limite de taille/troncature d'une sortie très longue. Pas de mise en pause/annulation d'une tâche en cours depuis l'UI. Pas de coloration stdout/stderr distincte (un seul bloc de texte brut).
+
+<!-- Prochaine entrée : D-23 -->

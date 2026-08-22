@@ -191,12 +191,13 @@ describe('PlanController', () => {
     expect(done.turnId).toBeTruthy();
   });
 
-  it('passes through task_start/task_complete events from the orchestrator', async () => {
+  it('passes through task_start/task_output/task_complete events from the orchestrator', async () => {
     const controller = await buildController(
       { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
       {
         run: async (_plan, _projectId, onTaskEvent) => {
           onTaskEvent?.({ type: 'task_start', role: 'coding', instruction: 'do it' });
+          onTaskEvent?.({ type: 'task_output', role: 'coding', data: 'writing file...\n' });
           onTaskEvent?.({ type: 'task_complete', role: 'coding', success: true, output: 'ok' });
           return FAKE_RESULT;
         },
@@ -211,6 +212,7 @@ describe('PlanController', () => {
       'planning',
       'plan_ready',
       'task_start',
+      'task_output',
       'task_complete',
       'done',
     ]);

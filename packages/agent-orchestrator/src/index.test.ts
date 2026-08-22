@@ -29,6 +29,22 @@ function fakeAgent(
   };
 }
 
+function fakeAgentWithOutput(
+  role: AgentTaskResult['role'],
+  chunks: string[],
+  succeed: boolean,
+): Agent {
+  return {
+    role,
+    async run(_task: AgentTask, context: AgentRunContext): Promise<AgentTaskResult> {
+      for (const chunk of chunks) {
+        context.onOutput?.(chunk);
+      }
+      return { role, success: succeed, output: chunks.join('') };
+    },
+  };
+}
+
 function fakeAgentSucceedingOnAttempt(
   role: AgentTaskResult['role'],
   succeedOnAttempt: number,
@@ -436,6 +452,51 @@ describe('SequentialAgentOrchestrator', () => {
         'debug',
       ]);
       expect(events.at(-1)).toEqual({ type: 'task_complete', role: 'debug', success: true, output: 'fixed' });
+    });
+
+    it('emits task_output events between task_start and task_complete when the agent streams output', async () => {
+      const coding = fakeAgentWithOutput('coding', ['writing file...\n', 'done\n'], true);
+      const orchestrator = new SequentialAgentOrchestrator(
+        new Map([['coding', coding]]),
+        fakeSandboxProvider(),
+        fakeFileSystem(),
+      );
+      const events: TaskProgressEvent[] = [];
+
+      await orchestrator.run(
+        planWith([{ agentRole: 'coding', instruction: 'write the code' }]),
+        'proj-1',
+        (event) => events.push(event),
+      );
+
+      expect(events).toEqual([
+        { type: 'task_start', role: 'coding', instruction: 'write the code' },
+        { type: 'task_output', role: 'coding', data: 'writing file...\n' },
+        { type: 'task_output', role: 'coding', data: 'done\n' },
+        { type: 'task_complete', role: 'coding', success: true, output: 'writing file...\ndone\n' },
+      ]);
+    });
+
+    it('emits task_output events during a debug retry too, tagged with the debug role', async () => {
+      const coding = fakeAgent('coding', false);
+      const debug = fakeAgentWithOutput('debug', ['diagnosing...\n'], true);
+      const orchestrator = new SequentialAgentOrchestrator(
+        new Map([
+          ['coding', coding],
+          ['debug', debug],
+        ]),
+        fakeSandboxProvider(),
+        fakeFileSystem(),
+      );
+      const events: TaskProgressEvent[] = [];
+
+      await orchestrator.run(
+        planWith([{ agentRole: 'coding', instruction: 'write the code' }]),
+        'proj-1',
+        (event) => events.push(event),
+      );
+
+      expect(events).toContainEqual({ type: 'task_output', role: 'debug', data: 'diagnosing...\n' });
     });
 
     it('is optional — omitting it does not change behavior', async () => {
