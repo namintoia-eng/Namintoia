@@ -89,8 +89,15 @@ function fakeFileSystem(): FileSystem & { saved: { projectId: string; files: Pro
       const match = saved.filter((s) => s.projectId === projectId).at(-1);
       return match ? match.files.map((f) => f.path) : [];
     },
-    async readProjectFile() {
-      return '';
+    async readProjectFile(projectId: string, path: string) {
+      const match = saved.filter((s) => s.projectId === projectId).at(-1);
+      const file = match?.files.find((f) => f.path === path);
+      if (!file) {
+        const error = new Error(`no such file: ${path}`) as NodeJS.ErrnoException;
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return file.content;
     },
   };
 }
@@ -304,5 +311,62 @@ describe('PlanController', () => {
     await expect(controller.files(USER_A, 'does-not-exist')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  describe('fileContent', () => {
+    it("returns a project file's content", async () => {
+      const fileSystem = fakeFileSystem();
+      const controller = await buildController(
+        { planFromIntent: async () => FAKE_PLAN },
+        { run: async () => FAKE_RESULT },
+        fakeMemoryStore(),
+        fileSystem,
+      );
+      fileSystem.saved.push({
+        projectId: `user-a:${PROJECT_A.id}`,
+        files: [{ path: 'hello.txt', content: 'hello world' }],
+      });
+
+      const response = await controller.fileContent(USER_A, PROJECT_A.id, 'hello.txt');
+
+      expect(response).toEqual({ path: 'hello.txt', content: 'hello world' });
+    });
+
+    it('returns 404 for an unknown file path', async () => {
+      const fileSystem = fakeFileSystem();
+      const controller = await buildController(
+        { planFromIntent: async () => FAKE_PLAN },
+        { run: async () => FAKE_RESULT },
+        fakeMemoryStore(),
+        fileSystem,
+      );
+      fileSystem.saved.push({ projectId: `user-a:${PROJECT_A.id}`, files: [] });
+
+      await expect(controller.fileContent(USER_A, PROJECT_A.id, 'missing.txt')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('rejects a missing path query parameter', async () => {
+      const controller = await buildController(
+        { planFromIntent: async () => FAKE_PLAN },
+        { run: async () => FAKE_RESULT },
+      );
+
+      await expect(
+        controller.fileContent(USER_A, PROJECT_A.id, undefined as unknown as string),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("returns 404 when a user requests another user's project file", async () => {
+      const controller = await buildController(
+        { planFromIntent: async () => FAKE_PLAN },
+        { run: async () => FAKE_RESULT },
+      );
+
+      await expect(controller.fileContent(USER_A, PROJECT_B.id, 'hello.txt')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
   });
 });

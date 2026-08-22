@@ -7,6 +7,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type {
@@ -45,6 +46,11 @@ interface ProjectHistoryResponse {
 interface ProjectFilesResponse {
   projectId: string;
   files: string[];
+}
+
+interface ProjectFileContentResponse {
+  path: string;
+  content: string;
 }
 
 /**
@@ -97,6 +103,27 @@ export class PlanController {
     return { projectId, files };
   }
 
+  @Get(':projectId/file')
+  async fileContent(
+    @CurrentUser() user: User,
+    @Param('projectId') projectId: string,
+    @Query('path') path: string,
+  ): Promise<ProjectFileContentResponse> {
+    const project = await this.resolveProject(user, projectId);
+    if (typeof path !== 'string' || path.trim().length === 0) {
+      throw new BadRequestException('"path" query parameter is required.');
+    }
+    try {
+      const content = await this.fileSystem.readProjectFile(scopeProjectId(user.id, project.id), path);
+      return { path, content };
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        throw new NotFoundException('No such file.');
+      }
+      throw error;
+    }
+  }
+
   private async resolveProject(user: User, projectId: string): Promise<Project> {
     const project = await this.projects.getProject(user.id, projectId);
     if (!project) {
@@ -104,6 +131,15 @@ export class PlanController {
     }
     return project;
   }
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === 'ENOENT'
+  );
 }
 
 function scopeProjectId(userId: string, projectId: string): string {
