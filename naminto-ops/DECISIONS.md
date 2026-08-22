@@ -285,4 +285,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Pas de pagination de l'historique (aucun volume ne le justifie), pas d'édition/suppression de fichiers depuis l'UI (lecture seule), pas de coloration syntaxique (texte brut, cohérent avec le rendu des sorties de commande déjà en place). Un bug de cache Next.js déjà rencontré deux fois cette session (`.next` corrompu après un redémarrage pendant qu'un ancien process tournait encore) a de nouveau été rencontré et résolu de la même façon (`rm -rf apps/web/.next`) — pas un bug du code livré.
 
-<!-- Prochaine entrée : D-20 -->
+### D-20 — Gestion de projets : renommer/supprimer (2026-08-22)
+
+**Statut :** acceptée
+
+**Contexte :** Un projet créé ne pouvait ni être renommé ni supprimé — noté hors scope à D-16. L'utilisateur a choisi de combler ce manque.
+
+**Décision :** `ProjectSystem` gagne `renameProject`/`deleteProject` (`packages/naminto-core/src/project-system.ts`) — ces méthodes supposent l'appelant déjà autorisé, la vérification de propriété se fait en amont dans `project.controller.ts` via `resolveProject` (même patron que `plan.controller.ts`), pas à l'intérieur de `LocalProjectSystem`. **Cascade de suppression** : `MemoryStore` et `FileSystem` gagnent chacun `deleteProject(projectId)` — sans ça, supprimer un projet aurait laissé son historique et ses fichiers orphelins indéfiniment sur disque, inaccessibles via l'API mais jamais nettoyés. Toutes les implémentations sont idempotentes (supprimer un projet/historique/fichier déjà absent ne lève pas d'erreur). Routes `PATCH /projects/:id` et `DELETE /projects/:id` (`apps/api/src/project/project.controller.ts`), 404 pour un projet inconnu ou appartenant à un autre utilisateur (même logique anti-énumération que le reste de ce projet). Côté `apps/web`, `ProjectPicker.tsx` gagne une édition inline (pas de nouvel écran) et une confirmation de suppression **intégrée à l'interface** plutôt qu'un `window.confirm()` natif — cohérence visuelle avec le thème sombre déjà en place, et testabilité déterministe sans dépendre du mock d'une API navigateur.
+
+**Vérification en conditions réelles :** navigateur réel — renommage d'un projet existant (créé lors de la vérification D-19) → nom mis à jour dans la liste ; suppression → confirmation → disparition de la liste. Inspection directe du stockage fichier confirmant la cascade : `.naminto/memory` et `.naminto/files` vidés de toute trace du projet supprimé (qui contenaient les données semées lors de la vérification D-19) ; `GET /plan/:projectId` sur l'ancien id renvoie bien 404 après suppression — aucune fuite de données orphelines accessible via l'API.
+
+**Alternatives envisagées :** Corbeille/restauration après suppression (rejeté : suppression définitive et immédiate, cohérent avec l'absence d'historique de version ailleurs dans ce projet — pas de complexité supplémentaire non demandée). `window.confirm()` natif pour la confirmation de suppression (rejeté : rupture de style visuel, et plus difficile à tester de façon déterministe qu'un état d'interface).
+
+**Conséquences :** Renommage/suppression restent centralisés dans le picker (pas dans l'en-tête du chat). Pas de suppression/renommage en masse.
+
+<!-- Prochaine entrée : D-21 -->

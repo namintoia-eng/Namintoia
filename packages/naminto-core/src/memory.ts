@@ -22,4 +22,5 @@ export interface MemoryStore {
   readonly name: string;
   saveTurn(turn: NewConversationTurn): Promise<ConversationTurn>;
   listTurns(projectId: string): Promise<ConversationTurn[]>;
+  deleteProject(projectId: string): Promise<void>;
 }

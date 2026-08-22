@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ConversationTurn, MemoryStore, NewConversationTurn } from '@namintoia/naminto-core';
 
@@ -44,6 +44,12 @@ export class FileMemoryStore implements MemoryStore {
 
   async listTurns(projectId: string): Promise<ConversationTurn[]> {
     return this.readProjectFile(projectId);
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    return this.runExclusive(projectId, async () => {
+      await rm(this.projectFilePath(projectId), { force: true });
+    });
   }
 
   private runExclusive<T>(projectId: string, fn: () => Promise<T>): Promise<T> {

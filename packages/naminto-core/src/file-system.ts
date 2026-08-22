@@ -16,4 +16,5 @@ export interface FileSystem {
   saveProjectFiles(projectId: string, files: ProjectFile[]): Promise<void>;
   listProjectFiles(projectId: string): Promise<string[]>;
   readProjectFile(projectId: string, path: string): Promise<string>;
+  deleteProject(projectId: string): Promise<void>;
 }

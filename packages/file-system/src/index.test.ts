@@ -57,4 +57,27 @@ describe('LocalFileSystem', () => {
       fileSystem.saveProjectFiles('p1', [{ path: '../../evil.txt', content: 'x' }]),
     ).rejects.toThrow(/refusing to write outside/);
   });
+
+  describe('deleteProject', () => {
+    it("removes a project's files", async () => {
+      await fileSystem.saveProjectFiles('p1', [{ path: 'hello.txt', content: 'hi' }]);
+
+      await fileSystem.deleteProject('p1');
+
+      expect(await fileSystem.listProjectFiles('p1')).toEqual([]);
+    });
+
+    it('does not affect other projects', async () => {
+      await fileSystem.saveProjectFiles('p1', [{ path: 'a.txt', content: 'a' }]);
+      await fileSystem.saveProjectFiles('p2', [{ path: 'b.txt', content: 'b' }]);
+
+      await fileSystem.deleteProject('p1');
+
+      expect(await fileSystem.listProjectFiles('p2')).toEqual(['b.txt']);
+    });
+
+    it('does not throw for a project with no saved files', async () => {
+      await expect(fileSystem.deleteProject('unknown')).resolves.toBeUndefined();
+    });
+  });
 });

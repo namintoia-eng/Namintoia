@@ -84,4 +84,27 @@ describe('FileMemoryStore', () => {
     const turns = await store.listTurns('p1');
     expect(turns.map((t) => t.intent).sort()).toEqual(['a', 'b', 'c']);
   });
+
+  describe('deleteProject', () => {
+    it("removes a project's turns", async () => {
+      await store.saveTurn(newTurn('p1', 'first'));
+
+      await store.deleteProject('p1');
+
+      expect(await store.listTurns('p1')).toEqual([]);
+    });
+
+    it('does not affect other projects', async () => {
+      await store.saveTurn(newTurn('p1', 'p1 intent'));
+      await store.saveTurn(newTurn('p2', 'p2 intent'));
+
+      await store.deleteProject('p1');
+
+      expect((await store.listTurns('p2')).map((t) => t.intent)).toEqual(['p2 intent']);
+    });
+
+    it('does not throw for a project with no history', async () => {
+      await expect(store.deleteProject('unknown-project')).resolves.toBeUndefined();
+    });
+  });
 });

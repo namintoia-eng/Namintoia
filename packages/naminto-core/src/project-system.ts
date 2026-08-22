@@ -19,4 +19,6 @@ export interface ProjectSystem {
   createProject(ownerId: string, name: string): Promise<Project>;
   listProjects(ownerId: string): Promise<Project[]>;
   getProject(ownerId: string, projectId: string): Promise<Project | null>;
+  renameProject(ownerId: string, projectId: string, name: string): Promise<Project>;
+  deleteProject(ownerId: string, projectId: string): Promise<void>;
 }

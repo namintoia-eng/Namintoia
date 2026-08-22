@@ -66,4 +66,47 @@ describe('LocalProjectSystem', () => {
     const projects = await projectSystem.listProjects('user-a');
     expect(projects.map((p) => p.name).sort()).toEqual(['P1', 'P2', 'P3']);
   });
+
+  describe('renameProject', () => {
+    it('renames a project owned by the given user', async () => {
+      const created = await projectSystem.createProject('user-a', 'Old Name');
+
+      const renamed = await projectSystem.renameProject('user-a', created.id, 'New Name');
+
+      expect(renamed.name).toBe('New Name');
+      expect((await projectSystem.getProject('user-a', created.id))?.name).toBe('New Name');
+    });
+
+    it('throws when renaming an unknown project', async () => {
+      await expect(projectSystem.renameProject('user-a', 'does-not-exist', 'x')).rejects.toThrow();
+    });
+
+    it("throws when renaming another owner's project", async () => {
+      const created = await projectSystem.createProject('user-a', 'Old Name');
+      await expect(projectSystem.renameProject('user-b', created.id, 'New Name')).rejects.toThrow();
+    });
+  });
+
+  describe('deleteProject', () => {
+    it('removes a project owned by the given user', async () => {
+      const created = await projectSystem.createProject('user-a', 'Website Refresh');
+
+      await projectSystem.deleteProject('user-a', created.id);
+
+      expect(await projectSystem.getProject('user-a', created.id)).toBeNull();
+    });
+
+    it("does not affect another owner's projects", async () => {
+      const ownedByA = await projectSystem.createProject('user-a', 'A1');
+      const ownedByB = await projectSystem.createProject('user-b', 'B1');
+
+      await projectSystem.deleteProject('user-a', ownedByA.id);
+
+      expect(await projectSystem.getProject('user-b', ownedByB.id)).toEqual(ownedByB);
+    });
+
+    it('does not throw when deleting an unknown project', async () => {
+      await expect(projectSystem.deleteProject('user-a', 'does-not-exist')).resolves.toBeUndefined();
+    });
+  });
 });

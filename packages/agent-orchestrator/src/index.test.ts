@@ -89,6 +89,9 @@ function fakeFileSystem(): FileSystem & { saved: { projectId: string; files: Pro
     async readProjectFile() {
       return '';
     },
+    async deleteProject() {
+      // not used in these tests
+    },
   };
 }
 

@@ -60,6 +60,27 @@ export class LocalProjectSystem implements ProjectSystem {
     return project ?? null;
   }
 
+  async renameProject(ownerId: string, projectId: string, name: string): Promise<Project> {
+    return this.runExclusive(async () => {
+      const projects = await this.readJson();
+      const project = projects.find((p) => p.id === projectId && p.ownerId === ownerId);
+      if (!project) {
+        throw new Error('LocalProjectSystem: no such project.');
+      }
+      project.name = name;
+      await this.writeJson(projects);
+      return project;
+    });
+  }
+
+  async deleteProject(ownerId: string, projectId: string): Promise<void> {
+    return this.runExclusive(async () => {
+      const projects = await this.readJson();
+      const remaining = projects.filter((p) => !(p.id === projectId && p.ownerId === ownerId));
+      await this.writeJson(remaining);
+    });
+  }
+
   private runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.queue.then(fn, fn);
     this.queue = run.catch(() => undefined);

@@ -74,6 +74,9 @@ function fakeMemoryStore(): MemoryStore & { saved: NewConversationTurn[] } {
         .filter((t) => t.projectId === projectId)
         .map((t, i) => ({ ...t, id: `turn_${i}`, createdAt: '2026-08-21T00:00:00.000Z' }));
     },
+    async deleteProject() {
+      // not used in these tests
+    },
   };
 }
 
@@ -98,6 +101,9 @@ function fakeFileSystem(): FileSystem & { saved: { projectId: string; files: Pro
         throw error;
       }
       return file.content;
+    },
+    async deleteProject() {
+      // not used in these tests
     },
   };
 }
@@ -125,6 +131,12 @@ function fakeProjectSystem(projects: Project[] = [PROJECT_A, PROJECT_B]): Projec
     listProjects: async (ownerId) => projects.filter((p) => p.ownerId === ownerId),
     getProject: async (ownerId, projectId) =>
       projects.find((p) => p.id === projectId && p.ownerId === ownerId) ?? null,
+    renameProject: async () => {
+      throw new Error('not used in these tests');
+    },
+    deleteProject: async () => {
+      // not used in these tests
+    },
   };
 }
 

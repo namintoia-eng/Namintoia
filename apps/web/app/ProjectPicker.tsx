@@ -10,6 +10,8 @@ type ListState =
   | { status: 'ready'; projects: Project[] };
 
 type CreateState = { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string };
+type RenameState = { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string };
+type DeleteState = { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -30,17 +32,19 @@ export default function ProjectPicker({
   const [name, setName] = useState('');
   const [createState, setCreateState] = useState<CreateState>({ status: 'idle' });
 
-  useEffect(() => {
-    let cancelled = false;
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [renameState, setRenameState] = useState<RenameState>({ status: 'idle' });
 
-    async function loadProjects(): Promise<void> {
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deleteState, setDeleteState] = useState<DeleteState>({ status: 'idle' });
+
+  async function loadProjects(): Promise<void> {
+    setListState({ status: 'loading' });
+    try {
       const response = await fetch(`${API_URL}/projects`, {
         headers: { authorization: `Bearer ${token}` },
       });
-
-      if (cancelled) {
-        return;
-      }
 
       if (response.status === 401) {
         onUnauthorized();
@@ -57,17 +61,13 @@ export default function ProjectPicker({
 
       const data = (await response.json()) as { projects: Project[] };
       setListState({ status: 'ready', projects: data.projects });
+    } catch {
+      setListState({ status: 'error', message: 'Erreur inconnue.' });
     }
+  }
 
-    loadProjects().catch(() => {
-      if (!cancelled) {
-        setListState({ status: 'error', message: 'Erreur inconnue.' });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    loadProjects().catch(() => undefined);
   }, [token]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -95,6 +95,93 @@ export default function ProjectPicker({
       onSelectProject(project);
     } catch (error) {
       setCreateState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Erreur inconnue.',
+      });
+    }
+  }
+
+  function startEditing(project: Project): void {
+    setConfirmingDeleteId(null);
+    setEditingProjectId(project.id);
+    setEditingName(project.name);
+    setRenameState({ status: 'idle' });
+  }
+
+  function cancelEditing(): void {
+    setEditingProjectId(null);
+    setRenameState({ status: 'idle' });
+  }
+
+  async function handleRename(projectId: string): Promise<void> {
+    if (editingName.trim().length === 0) {
+      return;
+    }
+    setRenameState({ status: 'loading' });
+
+    try {
+      const response = await fetch(`${API_URL}/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: editingName }),
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `Le renommage a échoué (statut ${response.status}).`);
+      }
+
+      setEditingProjectId(null);
+      setRenameState({ status: 'idle' });
+      await loadProjects();
+    } catch (error) {
+      setRenameState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Erreur inconnue.',
+      });
+    }
+  }
+
+  function startDeleteConfirm(projectId: string): void {
+    setEditingProjectId(null);
+    setConfirmingDeleteId(projectId);
+    setDeleteState({ status: 'idle' });
+  }
+
+  function cancelDelete(): void {
+    setConfirmingDeleteId(null);
+    setDeleteState({ status: 'idle' });
+  }
+
+  async function handleDelete(projectId: string): Promise<void> {
+    setDeleteState({ status: 'loading' });
+
+    try {
+      const response = await fetch(`${API_URL}/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(body?.message ?? `La suppression a échoué (statut ${response.status}).`);
+      }
+
+      setConfirmingDeleteId(null);
+      setDeleteState({ status: 'idle' });
+      await loadProjects();
+    } catch (error) {
+      setDeleteState({
         status: 'error',
         message: error instanceof Error ? error.message : 'Erreur inconnue.',
       });
@@ -139,13 +226,87 @@ export default function ProjectPicker({
             )}
             {listState.projects.map((project) => (
               <li key={project.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectProject(project)}
-                  className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/40 px-4 py-3 text-left text-sm text-zinc-100 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
-                >
-                  {project.name}
-                </button>
+                {editingProjectId === project.id ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-zinc-700/50 bg-zinc-800/40 p-2">
+                    <input
+                      type="text"
+                      value={editingName}
+                      onChange={(event) => setEditingName(event.target.value)}
+                      className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRename(project.id)}
+                      disabled={renameState.status === 'loading' || editingName.trim().length === 0}
+                      className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Enregistrer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelEditing}
+                      className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-600"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                ) : confirmingDeleteId === project.id ? (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+                    <span className="text-sm text-red-300">Confirmer la suppression ?</span>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(project.id)}
+                        disabled={deleteState.status === 'loading'}
+                        className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Oui, supprimer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelDelete}
+                        className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-600"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectProject(project)}
+                      className="flex-1 rounded-lg border border-zinc-700/50 bg-zinc-800/40 px-4 py-3 text-left text-sm text-zinc-100 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
+                    >
+                      {project.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startEditing(project)}
+                      className="shrink-0 text-xs text-zinc-400 hover:text-zinc-200"
+                    >
+                      Renommer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startDeleteConfirm(project.id)}
+                      className="shrink-0 text-xs text-zinc-400 hover:text-red-400"
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                )}
+
+                {renameState.status === 'error' && editingProjectId === project.id && (
+                  <div role="alert" className="mt-1 text-xs text-red-400">
+                    {renameState.message}
+                  </div>
+                )}
+                {deleteState.status === 'error' && confirmingDeleteId === project.id && (
+                  <div role="alert" className="mt-1 text-xs text-red-400">
+                    {deleteState.message}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

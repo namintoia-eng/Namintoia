@@ -130,4 +130,122 @@ describe('ProjectPicker', () => {
 
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
+
+  describe('rename', () => {
+    it('renames a project and reloads the list with the new name', async () => {
+      let listedName = 'Website Refresh';
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PATCH') {
+          listedName = (JSON.parse(init.body as string) as { name: string }).name;
+          return new Response(JSON.stringify({ ...PROJECT_A, name: listedName }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ projects: [{ ...PROJECT_A, name: listedName }] }), {
+          status: 200,
+        });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      renderPicker();
+      await waitFor(() => expect(screen.getByText('Website Refresh')).toBeTruthy());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Renommer' }));
+      const input = screen.getByDisplayValue('Website Refresh');
+      fireEvent.change(input, { target: { value: 'New Name' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+      await waitFor(() => expect(screen.getByText('New Name')).toBeTruthy());
+    });
+
+    it('cancelling a rename leaves the project unchanged', async () => {
+      globalThis.fetch = vi.fn(
+        async () => new Response(JSON.stringify({ projects: [PROJECT_A] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+
+      renderPicker();
+      await waitFor(() => expect(screen.getByText('Website Refresh')).toBeTruthy());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Renommer' }));
+      fireEvent.change(screen.getByDisplayValue('Website Refresh'), { target: { value: 'Ignored' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Annuler' }));
+
+      expect(screen.getByText('Website Refresh')).toBeTruthy();
+      expect(screen.queryByText('Ignored')).toBeNull();
+    });
+
+    it('shows an error alert when renaming fails', async () => {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PATCH') {
+          return new Response(JSON.stringify({ message: 'rename failed' }), { status: 500 });
+        }
+        return new Response(JSON.stringify({ projects: [PROJECT_A] }), { status: 200 });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      renderPicker();
+      await waitFor(() => expect(screen.getByText('Website Refresh')).toBeTruthy());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Renommer' }));
+      fireEvent.change(screen.getByDisplayValue('Website Refresh'), { target: { value: 'New Name' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+      expect(screen.getByText(/rename failed/)).toBeTruthy();
+    });
+  });
+
+  describe('delete', () => {
+    it('does nothing until the deletion is confirmed', async () => {
+      globalThis.fetch = vi.fn(
+        async () => new Response(JSON.stringify({ projects: [PROJECT_A] }), { status: 200 }),
+      ) as unknown as typeof fetch;
+
+      renderPicker();
+      await waitFor(() => expect(screen.getByText('Website Refresh')).toBeTruthy());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Supprimer' }));
+      expect(screen.getByText(/Confirmer la suppression/)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Annuler' }));
+      expect(screen.getByText('Website Refresh')).toBeTruthy();
+    });
+
+    it('removes the project from the list once confirmed', async () => {
+      let deleted = false;
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') {
+          deleted = true;
+          return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ projects: deleted ? [] : [PROJECT_A] }), { status: 200 });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      renderPicker();
+      await waitFor(() => expect(screen.getByText('Website Refresh')).toBeTruthy());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Supprimer' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Oui, supprimer' }));
+
+      await waitFor(() => expect(screen.getByText(/Aucun projet/)).toBeTruthy());
+    });
+
+    it('shows an error alert when deletion fails', async () => {
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') {
+          return new Response(JSON.stringify({ message: 'delete failed' }), { status: 500 });
+        }
+        return new Response(JSON.stringify({ projects: [PROJECT_A] }), { status: 200 });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      renderPicker();
+      await waitFor(() => expect(screen.getByText('Website Refresh')).toBeTruthy());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Supprimer' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Oui, supprimer' }));
+
+      await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+      expect(screen.getByText(/delete failed/)).toBeTruthy();
+    });
+  });
 });

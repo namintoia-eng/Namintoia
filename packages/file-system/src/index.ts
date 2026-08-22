@@ -45,6 +45,10 @@ export class LocalFileSystem implements FileSystem {
     return readFile(this.resolveProjectPath(projectId, path), 'utf8');
   }
 
+  async deleteProject(projectId: string): Promise<void> {
+    await rm(this.projectDir(projectId), { recursive: true, force: true });
+  }
+
   private projectDir(projectId: string): string {
     return resolve(join(this.baseDir, encodeURIComponent(projectId)));
   }
