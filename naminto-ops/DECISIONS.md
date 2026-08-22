@@ -271,4 +271,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Nécessite un vrai client OAuth Google (Google Cloud Console → OAuth consent screen → Credentials → OAuth Client ID, type Web application, redirect URI exactement `http://localhost:3001/auth/google/callback` en dev) — étape manuelle réservée à l'utilisateur, comme `ANTHROPIC_API_KEY`/`E2B_API_KEY` cette session. Sans ces identifiants, `/auth/google` échoue avec une erreur de configuration claire (pas de repli silencieux) ; le bouton navigue bien jusqu'à l'écran réel de Google même avec des identifiants factices, ce qui suffit à vérifier le câblage. Autres fournisseurs OAuth (GitHub, etc.), liaison/déliaison manuelle depuis l'UI, et rafraîchissement de token Google restent hors scope.
 
-<!-- Prochaine entrée : D-19 -->
+### D-19 — Historique et fichiers affichés dans le chat (2026-08-22)
+
+**Statut :** acceptée
+
+**Contexte :** `GET /plan/:projectId` et `GET /plan/:projectId/files` existaient côté serveur depuis D-10/D-12, mais `Chat.tsx` ne les appelait jamais — lacune explicitement notée comme hors scope à chaque chantier précédent (D-16, D-17). L'utilisateur a choisi de la combler.
+
+**Décision :** Nouvel endpoint `GET /plan/:projectId/file?path=...` (`apps/api/src/plan/plan.controller.ts`) — seule pièce manquante côté serveur, `FileSystem.readProjectFile` existait déjà mais n'était pas exposé en HTTP ; même garde de propriété que les trois routes existantes, 404 (`isNotFoundError` local, même patron que `LocalFileSystem`/`LocalUserSystem`/`LocalProjectSystem`) si le fichier n'existe pas. Côté `apps/web`, extraction de `PlanResult.tsx` depuis le bloc Plan/Résultat jusqu'ici en dur dans `Chat.tsx` (réutilisé pour la soumission en cours et pour chaque tour d'historique déplié — seule raison de l'extraction, pas une réorganisation plus large). `Chat.tsx` gagne deux sections : Historique (tours dans des `<details>`/`<summary>` natifs, le plus récent en premier, sans state React pour l'expansion) et Fichiers (liste cliquable, contenu chargé à la demande). Les deux se rechargent après chaque soumission réussie de `/plan`, pas seulement au montage.
+
+**Vérification en conditions réelles :** navigateur réel confirmant les états vides sur un projet neuf. Le blocage crédit Anthropic (D-15) empêchant tout `/plan` réel de réussir, les données d'historique/fichiers ont été semées directement dans le stockage fichier (`.naminto/memory`, `.naminto/files`, gitignorés) en respectant exactement le format écrit par `FileMemoryStore`/`LocalFileSystem` pour vérifier le rendu réel : le tour d'historique s'affiche, son dépliage montre le même `PlanResult` que l'affichage principal, le fichier se charge et s'affiche au clic, se referme au second clic.
+
+**Alternatives envisagées :** State React pour l'expansion des tours au lieu de `<details>` natif (rejeté : pas de bénéfice ici, sémantique HTML native suffit et accessible par défaut). Endpoint de contenu de fichier sous `/plan/:projectId/files/:path` avec un segment de route pour le chemin (rejeté : les chemins de fichiers contiennent des `/`, un paramètre de requête `?path=` évite toute complication d'échappement de route).
+
+**Conséquences :** Pas de pagination de l'historique (aucun volume ne le justifie), pas d'édition/suppression de fichiers depuis l'UI (lecture seule), pas de coloration syntaxique (texte brut, cohérent avec le rendu des sorties de commande déjà en place). Un bug de cache Next.js déjà rencontré deux fois cette session (`.next` corrompu après un redémarrage pendant qu'un ancien process tournait encore) a de nouveau été rencontré et résolu de la même façon (`rm -rf apps/web/.next`) — pas un bug du code livré.
+
+<!-- Prochaine entrée : D-20 -->
