@@ -237,4 +237,18 @@ Sont explicitement **hors MVP** : Design Agent, Architecture Agent, Research Age
 
 **Conséquences :** Changement cassant sur `POST /plan` : l'ancien projet implicite `"default"` (et tout ce qui avait été écrit dessous en dev) devient définitivement inaccessible — acceptable, stockage local de développement uniquement, aucune vraie donnée utilisateur en jeu. La visualisation de l'historique/des fichiers d'un projet dans l'UI reste une lacune préexistante non traitée ici (les endpoints existent côté serveur depuis D-12, `Chat.tsx` ne les a jamais appelés).
 
-<!-- Prochaine entrée : D-17 -->
+### D-17 — Refonte UI/UX : Tailwind CSS, thème sombre (2026-08-22)
+
+**Statut :** acceptée
+
+**Contexte :** L'interface (`AuthForm.tsx`, `ProjectPicker.tsx`, `Chat.tsx`, `page.tsx`) était fonctionnelle mais visuellement brute (styles inline ad hoc, police système, aucune identité visuelle). L'utilisateur a demandé une refonte pour que l'IA soit « présentable ». Direction confirmée avec l'utilisateur : thème sombre façon outil dev (Linear/Vercel/Anthropic).
+
+**Décision :** Ajout de Tailwind CSS v4 à `apps/web` (`tailwindcss`, `@tailwindcss/postcss`, intégration CSS-first sans `tailwind.config.js`) — reprend un choix déjà acté dans `STACK.md` ("Frontend généré : ... Tailwind CSS ..."), appliqué ici à l'app Naminto elle-même, pas seulement aux apps qu'elle génère. Palette : tons neutres `zinc` (fond/bordures/texte), accent `violet`, `emerald`/`red` pour succès/échec — palettes Tailwind standard, aucune couleur custom à maintenir. Thème unique (pas de bascule clair/sombre), pas de logo image (wordmark texte + un petit carré violet en guise de marque). Les quatre écrans (connexion, sélection de projet, chat, chargement) ont été restylés sans toucher à leur logique : mêmes props, mêmes machines à états, mêmes appels `fetch`. Chaque placeholder/rôle/texte interrogé par les tests (`email@exemple.com`, `Nom du projet`, boutons `Se connecter`/`S'inscrire`/`Créer`/`Envoyer`, `role="alert"`, heading exact `Naminto IA` sur l'écran de connexion, etc.) a été recensé par grep avant modification et préservé — zéro modification nécessaire dans les 4 fichiers de test.
+
+**Vérification :** `npm run check` intégralement vert sans toucher aux tests (35/35 lint+typecheck+test, 19/19 build). Navigateur réel : connexion → sélection de projet → chat → envoi d'un message (échoue comme attendu sur le blocage crédit Anthropic déjà connu, l'alerte d'erreur s'affiche correctement dans le nouveau style) → déconnexion → retour à l'écran de connexion, les trois écrans capturés en captures d'écran.
+
+**Alternatives envisagées :** CSS modules/styled-components (rejeté : Tailwind est déjà le choix retenu dans `STACK.md` pour ce type d'interface, pas de raison d'introduire un second système). Bascule thème clair/sombre (rejeté : non demandé, ajoute une surface de test/maintenance pour un gain non demandé).
+
+**Conséquences :** Aucune régression fonctionnelle — uniquement visuel. Un bug de cache Next.js déjà rencontré une fois cette session (`.next` corrompu après changement de configuration pendant qu'un serveur dev tournait, erreurs `Cannot find module './NNN.js'`) a de nouveau été rencontré pendant la vérification ; résolu par `rm -rf apps/web/.next` + redémarrage propre — pas un bug du code livré, juste un artefact de dev à surveiller après tout changement de config Next.js/PostCSS pendant qu'un serveur tourne.
+
+<!-- Prochaine entrée : D-18 -->

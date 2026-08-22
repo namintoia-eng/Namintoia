@@ -6,12 +6,12 @@
 ## Dernière mise à jour
 
 - Date : 2026-08-22
-- Par : session Project System (D-16) — `Project`/`ProjectSystem` (`packages/naminto-core`), `LocalProjectSystem` (`packages/project-system`), endpoints `POST/GET /projects`. `PlanController` vérifie désormais une vraie propriété (`ProjectSystem.getProject`) avant tout accès aux trois routes — 404 (pas 403) si le projet n'existe pas ou n'appartient pas à l'utilisateur ; `projectId` obligatoire dans `POST /plan` (l'ancien `"default"` implicite n'existe plus). `apps/web` gagne un écran `ProjectPicker.tsx` (liste + création, sélection auto après création) entre la connexion et le chat ; le projet sélectionné est persisté dans `localStorage` (`naminto_project_id`) et survit à un rechargement. Vérifié en conditions réelles (curl : 401/400/404 sur toutes les combinaisons invalides, 404 confirmé pour le projet d'un autre compte ; navigateur : inscription → picker → création → chat → "← Projets" → second projet → rechargement conserve la sélection → déconnexion efface tout). `npm run check` intégralement vert (35/35 lint+typecheck+test, 19/19 build — un flake ponctuel de `vitest`/`tinypool` sur `agent-orchestrator` observé une fois lors d'une exécution parallèle lourde, non reproductible en isolation, sans lien avec ce chantier). Détail : `DECISIONS.md` D-16.
-- Session précédente : Chargement `.env` dans apps/api (D-15) — voir `DECISIONS.md` D-15.
+- Par : session Refonte UI/UX (D-17) — Tailwind CSS v4 ajouté à `apps/web` (thème sombre, palette `zinc`/`violet`/`emerald`/`red`), les quatre écrans (`AuthForm.tsx`, `ProjectPicker.tsx`, `Chat.tsx`, `page.tsx`) restylés sans changer leur logique ni casser un seul test (chaînes/rôles/placeholders interrogés par les tests recensés et préservés à l'avance). `npm run check` intégralement vert (35/35, 19/19 build, zéro modification de test). Vérifié en navigateur réel : connexion → sélection de projet → chat → alerte d'erreur stylée (blocage crédit Anthropic déjà connu) → déconnexion, captures d'écran à l'appui. Détail : `DECISIONS.md` D-17.
+- Session précédente : Project System (D-16) — voir `DECISIONS.md` D-16.
 
 ## Phase actuelle
 
-**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est intégralement complet**, et le chantier Project System (D-16, au-delà du MVP D-2) est également terminé : Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator, Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User System, authentification branchée avec isolation par compte réelle (D-14/D-16), Project System (projets nommés, propriété vérifiée), User Interface de chat protégée par connexion et scopée à un projet — tout vérifié en conditions réelles. Il ne reste qu'un seul point avant une démo `/plan` bout-en-bout complète : du crédit Anthropic réel sur le compte (blocage déjà connu, volontairement non résolu par l'utilisateur pour l'instant — voir « Blocages » ci-dessous).
+**Le périmètre MVP minimal défini dans `DECISIONS.md` D-2 est intégralement complet**, et les chantiers au-delà du MVP le sont également : Project System (D-16), authentification avec isolation par compte réelle (D-14/D-16), refonte UI/UX (D-17). Naminto Core + 4 Providers, Reasoning Engine, Agent Orchestrator, Coding/Testing/Debug Agent, sandbox réel (E2B), Memory System, File System, User System, User Interface de chat présentable, protégée par connexion et scopée à un projet — tout vérifié en conditions réelles. Il ne reste qu'un seul point avant une démo `/plan` bout-en-bout complète : du crédit Anthropic réel sur le compte (blocage déjà connu, volontairement non résolu par l'utilisateur pour l'instant — voir « Blocages » ci-dessous).
 
 ## Ce qui existe
 
@@ -35,7 +35,8 @@
 - [x] Authentification branchée sur `/plan` + isolation par compte (`DECISIONS.md` D-14) — `SessionAuthGuard` protège les trois routes de `PlanController`
 - [x] Project System — `Project`/`ProjectSystem` (`packages/naminto-core`), `LocalProjectSystem` (`packages/project-system`, D-16), `POST/GET /projects`, propriété vérifiée réellement (pas juste préfixée) avant tout accès à `/plan`
 - [x] User Interface — chat d'intention protégé par connexion et scopé à un projet sélectionné (`apps/web/app/page.tsx` + `AuthForm.tsx` + `ProjectPicker.tsx` + `Chat.tsx`), pas encore en streaming (réponse synchrone unique pour l'instant, cf. `POST /plan`)
-- [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration ; renommage/suppression de projets ; visualisation de l'historique/des fichiers d'un projet dans l'UI
+- [x] Design UI/UX présentable — Tailwind CSS v4, thème sombre (`DECISIONS.md` D-17)
+- [ ] Hors MVP (Phase 2+, voir D-2) : Design Agent, Architecture Agent, Research Agent, Deployment Agent en agents autonomes séparés ; Security System avancé ; Billing System ; Credit System ; Administration ; renommage/suppression de projets ; visualisation de l'historique/des fichiers d'un projet dans l'UI ; bascule thème clair/sombre
 
 ## Prochaine étape recommandée
 
@@ -55,7 +56,8 @@
 11. ~~Brancher l'authentification sur `/plan`/le chat + isolation par compte~~ — fait (D-14), vérifié en conditions réelles.
 12. ~~Corriger le chargement de `ANTHROPIC_API_KEY` dans `apps/api` en dev~~ — fait (D-15), vérifié en conditions réelles.
 13. ~~Project System (projets nommés, propriété réelle sur `/plan`)~~ — fait (D-16), vérifié en conditions réelles.
-14. Retester tout le pipeline dès que du crédit Anthropic réel est disponible — dernière vérification en conditions réelles manquante, tout le reste (MVP D-2 + Project System D-16) est intégralement complet.
+14. ~~Refonte UI/UX présentable~~ — fait (D-17), vérifié en navigateur réel.
+15. Retester tout le pipeline dès que du crédit Anthropic réel est disponible — dernière vérification en conditions réelles manquante, tout le reste est intégralement complet.
 
 ## Blocages / questions ouvertes
 

@@ -68,76 +68,110 @@ export default function Chat({
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: '0 auto', padding: '2rem 1rem', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>Naminto IA — {projectName}</h1>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button type="button" onClick={onBackToProjects} style={{ fontSize: '0.85rem' }}>
-            ← Projets
-          </button>
-          <button type="button" onClick={onLogout} style={{ fontSize: '0.85rem' }}>
-            Se déconnecter
-          </button>
+    <div className="min-h-screen bg-zinc-950">
+      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
+        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-sm bg-violet-500" />
+            <h1 className="text-base font-semibold tracking-tight text-zinc-100">
+              Naminto IA <span className="font-normal text-zinc-500">— {projectName}</span>
+            </h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <button type="button" onClick={onBackToProjects} className="text-xs text-zinc-400 hover:text-zinc-200">
+              ← Projets
+            </button>
+            <button type="button" onClick={onLogout} className="text-xs text-zinc-400 hover:text-zinc-200">
+              Se déconnecter
+            </button>
+          </div>
         </div>
-      </div>
-      <p>Décris ce que tu veux construire — Naminto planifie, puis exécute.</p>
+      </header>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <textarea
-          value={intent}
-          onChange={(event) => setIntent(event.target.value)}
-          placeholder="Ex : crée un fichier hello.txt contenant 'Hello from Naminto'"
-          rows={4}
-          style={{ padding: '0.75rem', fontSize: '1rem', fontFamily: 'inherit' }}
-        />
-        <button type="submit" disabled={state.status === 'loading' || intent.trim().length === 0}>
-          {state.status === 'loading' ? 'Naminto réfléchit…' : 'Envoyer'}
-        </button>
-      </form>
+      <main className="mx-auto max-w-2xl px-4 py-8">
+        <p className="mb-6 text-sm text-zinc-400">
+          Décris ce que tu veux construire — Naminto planifie, puis exécute.
+        </p>
 
-      {state.status === 'idle' && (
-        <p style={{ color: '#666', marginTop: '1.5rem' }}>Aucune demande envoyée pour l&apos;instant.</p>
-      )}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <textarea
+            value={intent}
+            onChange={(event) => setIntent(event.target.value)}
+            placeholder="Ex : crée un fichier hello.txt contenant 'Hello from Naminto'"
+            rows={4}
+            className="resize-none rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40"
+          />
+          <button
+            type="submit"
+            disabled={state.status === 'loading' || intent.trim().length === 0}
+            className="self-start rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {state.status === 'loading' ? 'Naminto réfléchit…' : 'Envoyer'}
+          </button>
+        </form>
 
-      {state.status === 'error' && (
-        <div role="alert" style={{ marginTop: '1.5rem', color: '#b00020' }}>
-          <strong>Erreur :</strong> {state.message}
-        </div>
-      )}
+        {state.status === 'idle' && (
+          <p className="mt-8 text-sm text-zinc-500">Aucune demande envoyée pour l&apos;instant.</p>
+        )}
 
-      {state.status === 'success' && (
-        <section style={{ marginTop: '1.5rem' }}>
-          <h2>Plan</h2>
-          <p>
-            <strong>Objectif :</strong> {state.plan.spec.objective}
-          </p>
-          <ul>
-            {state.plan.tasks.map((task, index) => (
-              <li key={index}>
-                <strong>{task.agentRole}</strong> — {task.instruction}
-              </li>
-            ))}
-          </ul>
+        {state.status === 'error' && (
+          <div
+            role="alert"
+            className="mt-8 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
+            <strong className="font-medium">Erreur :</strong> {state.message}
+          </div>
+        )}
 
-          <h2>Résultat</h2>
-          <p>
-            Statut :{' '}
-            <strong style={{ color: state.result.success ? '#2e7d32' : '#b00020' }}>
-              {state.result.success ? 'Succès' : 'Échec'}
-            </strong>
-          </p>
-          {state.result.results.map((taskResult, index) => (
-            <pre
-              key={index}
-              style={{ background: '#f5f5f5', padding: '0.75rem', overflowX: 'auto', whiteSpace: 'pre-wrap' }}
-            >
-              [{taskResult.role}] {taskResult.success ? 'OK' : 'ÉCHEC'}
-              {'\n'}
-              {taskResult.output}
-            </pre>
-          ))}
-        </section>
-      )}
-    </main>
+        {state.status === 'success' && (
+          <section className="mt-8 flex flex-col gap-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-6">
+            <div>
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">Plan</h2>
+              <p className="mb-3 text-sm text-zinc-200">
+                <span className="text-zinc-400">Objectif :</span> {state.plan.spec.objective}
+              </p>
+              <ul className="flex flex-col gap-2">
+                {state.plan.tasks.map((task, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-zinc-300">
+                    <span className="mt-0.5 shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-xs uppercase tracking-wide text-zinc-400">
+                      {task.agentRole}
+                    </span>
+                    <span>{task.instruction}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">Résultat</h2>
+              <p className="mb-3 text-sm text-zinc-300">
+                Statut :{' '}
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    state.result.success
+                      ? 'bg-emerald-500/15 text-emerald-400'
+                      : 'bg-red-500/15 text-red-400'
+                  }`}
+                >
+                  {state.result.success ? 'Succès' : 'Échec'}
+                </span>
+              </p>
+              <div className="flex flex-col gap-2">
+                {state.result.results.map((taskResult, index) => (
+                  <pre
+                    key={index}
+                    className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-300"
+                  >
+                    [{taskResult.role}] {taskResult.success ? 'OK' : 'ÉCHEC'}
+                    {'\n'}
+                    {taskResult.output}
+                  </pre>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
   );
 }

@@ -104,62 +104,80 @@ export default function ProjectPicker({
   const creating = createState.status === 'loading';
 
   return (
-    <main style={{ maxWidth: 420, margin: '4rem auto', padding: '0 1rem', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h1>Naminto IA</h1>
-        <button type="button" onClick={onLogout} style={{ fontSize: '0.85rem' }}>
-          Se déconnecter
-        </button>
+    <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+      <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900/60 p-8 shadow-xl shadow-black/20">
+        <div className="mb-1 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-sm bg-violet-500" />
+            <h1 className="text-lg font-semibold tracking-tight text-zinc-100">Naminto IA</h1>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+          >
+            Se déconnecter
+          </button>
+        </div>
+        <p className="mb-6 text-sm text-zinc-400">Choisis un projet ou crée-en un nouveau.</p>
+
+        {listState.status === 'loading' && <p className="text-sm text-zinc-500">Chargement des projets…</p>}
+
+        {listState.status === 'error' && (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
+            <strong className="font-medium">Erreur :</strong> {listState.message}
+          </div>
+        )}
+
+        {listState.status === 'ready' && (
+          <ul className="flex flex-col gap-2">
+            {listState.projects.length === 0 && (
+              <p className="text-sm italic text-zinc-500">Aucun projet pour l&apos;instant.</p>
+            )}
+            {listState.projects.map((project) => (
+              <li key={project.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectProject(project)}
+                  className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/40 px-4 py-3 text-left text-sm text-zinc-100 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
+                >
+                  {project.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form onSubmit={handleCreate} className="mt-6 flex flex-col gap-3 border-t border-zinc-800 pt-6">
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Nom du projet"
+            required
+            className="rounded-lg border border-zinc-700 bg-zinc-800/50 px-4 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40"
+          />
+          <button
+            type="submit"
+            disabled={creating || name.trim().length === 0}
+            className="rounded-lg bg-violet-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {creating ? 'Création…' : 'Créer'}
+          </button>
+        </form>
+
+        {createState.status === 'error' && (
+          <div
+            role="alert"
+            className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+          >
+            <strong className="font-medium">Erreur :</strong> {createState.message}
+          </div>
+        )}
       </div>
-      <p>Choisis un projet ou crée-en un nouveau.</p>
-
-      {listState.status === 'loading' && <p>Chargement des projets…</p>}
-
-      {listState.status === 'error' && (
-        <div role="alert" style={{ marginTop: '1rem', color: '#b00020' }}>
-          <strong>Erreur :</strong> {listState.message}
-        </div>
-      )}
-
-      {listState.status === 'ready' && (
-        <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {listState.projects.length === 0 && <p style={{ color: '#666' }}>Aucun projet pour l&apos;instant.</p>}
-          {listState.projects.map((project) => (
-            <li key={project.id}>
-              <button
-                type="button"
-                onClick={() => onSelectProject(project)}
-                style={{ width: '100%', textAlign: 'left', padding: '0.6rem' }}
-              >
-                {project.name}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <form
-        onSubmit={handleCreate}
-        style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1.5rem' }}
-      >
-        <input
-          type="text"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Nom du projet"
-          required
-          style={{ padding: '0.6rem', fontSize: '1rem' }}
-        />
-        <button type="submit" disabled={creating || name.trim().length === 0}>
-          {creating ? 'Création…' : 'Créer'}
-        </button>
-      </form>
-
-      {createState.status === 'error' && (
-        <div role="alert" style={{ marginTop: '1rem', color: '#b00020' }}>
-          <strong>Erreur :</strong> {createState.message}
-        </div>
-      )}
     </main>
   );
 }

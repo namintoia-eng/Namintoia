@@ -82,10 +82,8 @@ export default function HomePage() {
 
   if (auth.status === 'checking') {
     return (
-      <main
-        style={{ maxWidth: 420, margin: '4rem auto', padding: '0 1rem', fontFamily: 'system-ui, sans-serif' }}
-      >
-        <p>Chargement…</p>
+      <main className="flex min-h-screen items-center justify-center bg-zinc-950">
+        <p className="text-sm text-zinc-500">Chargement…</p>
       </main>
     );
   }
