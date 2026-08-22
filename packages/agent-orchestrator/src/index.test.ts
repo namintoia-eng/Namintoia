@@ -9,6 +9,7 @@ import type {
   SandboxFileEntry,
   SandboxProvider,
   SandboxSession,
+  TaskProgressEvent,
 } from '@namintoia/naminto-core';
 import { describe, expect, it } from 'vitest';
 import { SequentialAgentOrchestrator } from './index.js';
@@ -344,5 +345,113 @@ describe('SequentialAgentOrchestrator', () => {
     await orchestrator.run(planWith([{ agentRole: 'coding', instruction: 'write the code' }]), 'proj-1');
 
     expect(fileSystem.saved[0]?.files).toEqual([{ path: 'partial.txt', content: 'partial work' }]);
+  });
+
+  describe('onTaskEvent', () => {
+    it('emits a start/complete pair for a single successful task', async () => {
+      const coding = fakeAgent('coding', true);
+      const orchestrator = new SequentialAgentOrchestrator(
+        new Map([['coding', coding]]),
+        fakeSandboxProvider(),
+        fakeFileSystem(),
+      );
+      const events: TaskProgressEvent[] = [];
+
+      await orchestrator.run(
+        planWith([{ agentRole: 'coding', instruction: 'write the code' }]),
+        'proj-1',
+        (event) => events.push(event),
+      );
+
+      expect(events).toEqual([
+        { type: 'task_start', role: 'coding', instruction: 'write the code' },
+        { type: 'task_complete', role: 'coding', success: true, output: 'ok' },
+      ]);
+    });
+
+    it('emits a pair per task, in order, for a multi-task plan', async () => {
+      const coding = fakeAgent('coding', true);
+      const testing = fakeAgent('testing', true);
+      const orchestrator = new SequentialAgentOrchestrator(
+        new Map([
+          ['coding', coding],
+          ['testing', testing],
+        ]),
+        fakeSandboxProvider(),
+        fakeFileSystem(),
+      );
+      const events: TaskProgressEvent[] = [];
+
+      await orchestrator.run(
+        planWith([
+          { agentRole: 'coding', instruction: 'write the code' },
+          { agentRole: 'testing', instruction: 'write the tests' },
+        ]),
+        'proj-1',
+        (event) => events.push(event),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        'task_start',
+        'task_complete',
+        'task_start',
+        'task_complete',
+      ]);
+      expect(events.map((e) => e.role)).toEqual(['coding', 'coding', 'testing', 'testing']);
+    });
+
+    it('emits a pair for every debug retry attempt too', async () => {
+      const coding = fakeAgent('coding', false);
+      const debug = fakeAgentSucceedingOnAttempt('debug', 2);
+      const orchestrator = new SequentialAgentOrchestrator(
+        new Map([
+          ['coding', coding],
+          ['debug', debug],
+        ]),
+        fakeSandboxProvider(),
+        fakeFileSystem(),
+      );
+      const events: TaskProgressEvent[] = [];
+
+      await orchestrator.run(
+        planWith([{ agentRole: 'coding', instruction: 'write the code' }]),
+        'proj-1',
+        (event) => events.push(event),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        'task_start',
+        'task_complete',
+        'task_start',
+        'task_complete',
+        'task_start',
+        'task_complete',
+      ]);
+      expect(events.map((e) => e.role)).toEqual([
+        'coding',
+        'coding',
+        'debug',
+        'debug',
+        'debug',
+        'debug',
+      ]);
+      expect(events.at(-1)).toEqual({ type: 'task_complete', role: 'debug', success: true, output: 'fixed' });
+    });
+
+    it('is optional — omitting it does not change behavior', async () => {
+      const coding = fakeAgent('coding', true);
+      const orchestrator = new SequentialAgentOrchestrator(
+        new Map([['coding', coding]]),
+        fakeSandboxProvider(),
+        fakeFileSystem(),
+      );
+
+      const result = await orchestrator.run(
+        planWith([{ agentRole: 'coding', instruction: 'write the code' }]),
+        'proj-1',
+      );
+
+      expect(result.success).toBe(true);
+    });
   });
 });

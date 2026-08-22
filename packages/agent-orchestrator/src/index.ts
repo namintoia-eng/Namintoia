@@ -10,6 +10,7 @@ import type {
   ProjectFile,
   SandboxProvider,
   SandboxSession,
+  TaskProgressEvent,
 } from '@namintoia/naminto-core';
 import { PROJECT_WORKING_DIRECTORY } from '@namintoia/naminto-core';
 
@@ -48,7 +49,11 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
     this.maxDebugAttempts = options.maxDebugAttempts ?? DEFAULT_MAX_DEBUG_ATTEMPTS;
   }
 
-  async run(plan: Plan, projectId: string): Promise<OrchestrationResult> {
+  async run(
+    plan: Plan,
+    projectId: string,
+    onTaskEvent?: (event: TaskProgressEvent) => void,
+  ): Promise<OrchestrationResult> {
     const session = await this.sandbox.createSession(projectId);
 
     try {
@@ -56,13 +61,20 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
 
       for (const task of plan.tasks) {
         const agent = this.requireAgent(task.agentRole);
+        onTaskEvent?.({ type: 'task_start', role: task.agentRole, instruction: task.instruction });
         let result = await agent.run(task, { sandboxSession: session });
+        onTaskEvent?.({
+          type: 'task_complete',
+          role: result.role,
+          success: result.success,
+          output: result.output,
+        });
         results.push(result);
 
         if (!result.success) {
           const debugAgent = this.agents.get('debug');
           if (debugAgent) {
-            result = await this.retryWithDebugAgent(debugAgent, task, result, results, session);
+            result = await this.retryWithDebugAgent(debugAgent, task, result, results, session, onTaskEvent);
           }
         }
 
@@ -95,6 +107,7 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
     initialFailure: AgentTaskResult,
     results: AgentTaskResult[],
     session: SandboxSession,
+    onTaskEvent?: (event: TaskProgressEvent) => void,
   ): Promise<AgentTaskResult> {
     let latest = initialFailure;
 
@@ -104,7 +117,14 @@ export class SequentialAgentOrchestrator implements AgentOrchestrator {
         instruction: buildDebugInstruction(originalTask, latest, attempt, this.maxDebugAttempts),
       };
 
+      onTaskEvent?.({ type: 'task_start', role: debugTask.agentRole, instruction: debugTask.instruction });
       const debugResult = await debugAgent.run(debugTask, { sandboxSession: session });
+      onTaskEvent?.({
+        type: 'task_complete',
+        role: debugResult.role,
+        success: debugResult.success,
+        output: debugResult.output,
+      });
       results.push(debugResult);
       latest = debugResult;
 

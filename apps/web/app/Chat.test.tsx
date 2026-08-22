@@ -23,6 +23,32 @@ const FAKE_TURN = {
   result: { plan: FAKE_PLAN, results: [{ role: 'coding', success: true, output: 'goodbye.txt written' }], success: true },
 };
 
+/** Encodes a PlanStreamEvent sequence exactly like apps/api's `@Sse()` route (DECISIONS.md
+ * D-21) — one `data: {...}\n\n` frame per event, no `id:`/`event:` fields. */
+function sseResponse(events: unknown[]): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200 });
+}
+
+function defaultSuccessEvents() {
+  const result = { plan: FAKE_PLAN, results: [{ role: 'coding', success: true, output: 'ok' }], success: true };
+  return [
+    { type: 'planning' },
+    { type: 'plan_ready', plan: FAKE_PLAN },
+    { type: 'task_start', role: 'coding', instruction: 'write hello.txt' },
+    { type: 'task_complete', role: 'coding', success: true, output: 'ok' },
+    { type: 'done', plan: FAKE_PLAN, result, turnId: 'turn-x' },
+  ];
+}
+
 function mockFetchByUrl(responses: {
   post?: Response;
   history?: Response;
@@ -32,16 +58,7 @@ function mockFetchByUrl(responses: {
   return vi.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     if (method === 'POST' && url.endsWith('/plan')) {
-      return (
-        responses.post ??
-        new Response(
-          JSON.stringify({
-            plan: FAKE_PLAN,
-            result: { plan: FAKE_PLAN, results: [{ role: 'coding', success: true, output: 'ok' }], success: true },
-          }),
-          { status: 200 },
-        )
-      );
+      return responses.post ?? sseResponse(defaultSuccessEvents());
     }
     if (url.includes('/file?path=')) {
       return responses.fileContent ?? new Response(JSON.stringify({ path: 'x', content: '' }), { status: 200 });
@@ -116,19 +133,26 @@ describe('Chat', () => {
   });
 
   it('shows the plan and a successful result after submitting', async () => {
-    setFetch(mockFetchByUrl({
-      post: new Response(
-        JSON.stringify({
-          plan: FAKE_PLAN,
-          result: {
+    setFetch(
+      mockFetchByUrl({
+        post: sseResponse([
+          { type: 'planning' },
+          { type: 'plan_ready', plan: FAKE_PLAN },
+          { type: 'task_start', role: 'coding', instruction: 'write hello.txt' },
+          { type: 'task_complete', role: 'coding', success: true, output: 'hello.txt written' },
+          {
+            type: 'done',
             plan: FAKE_PLAN,
-            results: [{ role: 'coding', success: true, output: 'hello.txt written' }],
-            success: true,
+            result: {
+              plan: FAKE_PLAN,
+              results: [{ role: 'coding', success: true, output: 'hello.txt written' }],
+              success: true,
+            },
+            turnId: 'turn-x',
           },
-        }),
-        { status: 200 },
-      ),
-    }));
+        ]),
+      }),
+    );
 
     renderChat();
     submitIntent('add hello.txt');
@@ -139,19 +163,26 @@ describe('Chat', () => {
   });
 
   it('shows a failed result when the orchestrator reports success: false', async () => {
-    setFetch(mockFetchByUrl({
-      post: new Response(
-        JSON.stringify({
-          plan: FAKE_PLAN,
-          result: {
+    setFetch(
+      mockFetchByUrl({
+        post: sseResponse([
+          { type: 'planning' },
+          { type: 'plan_ready', plan: FAKE_PLAN },
+          { type: 'task_start', role: 'coding', instruction: 'write hello.txt' },
+          { type: 'task_complete', role: 'coding', success: false, output: 'exitCode=1' },
+          {
+            type: 'done',
             plan: FAKE_PLAN,
-            results: [{ role: 'coding', success: false, output: 'exitCode=1' }],
-            success: false,
+            result: {
+              plan: FAKE_PLAN,
+              results: [{ role: 'coding', success: false, output: 'exitCode=1' }],
+              success: false,
+            },
+            turnId: 'turn-x',
           },
-        }),
-        { status: 200 },
-      ),
-    }));
+        ]),
+      }),
+    );
 
     renderChat();
     submitIntent('add hello.txt');
@@ -169,6 +200,20 @@ describe('Chat', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(screen.getByText(/Internal server error/)).toBeTruthy();
+  });
+
+  it('shows an error message when the stream itself emits an error event', async () => {
+    setFetch(
+      mockFetchByUrl({
+        post: sseResponse([{ type: 'planning' }, { type: 'error', message: 'Anthropic credit blocked.' }]),
+      }),
+    );
+
+    renderChat();
+    submitIntent('add hello.txt');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(screen.getByText(/Anthropic credit blocked/)).toBeTruthy();
   });
 
   it('calls onUnauthorized instead of showing an error when the session is rejected', async () => {
@@ -199,6 +244,108 @@ describe('Chat', () => {
     renderChat();
     const button = screen.getByRole('button', { name: /Envoyer/ });
     expect(button.hasAttribute('disabled')).toBe(true);
+  });
+
+  describe('progression par étape', () => {
+    it('shows a running task line after task_start, before the stream completes', async () => {
+      let releaseCompletion: (() => void) | undefined;
+      const completion = new Promise<void>((resolve) => {
+        releaseCompletion = resolve;
+      });
+
+      setFetch(
+        mockFetchByUrl({
+          post: new Response(
+            new ReadableStream({
+              async start(controller) {
+                const encoder = new TextEncoder();
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'planning' })}\n\n`));
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: 'plan_ready', plan: FAKE_PLAN })}\n\n`),
+                );
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: 'task_start', role: 'coding', instruction: 'write hello.txt' })}\n\n`,
+                  ),
+                );
+                await completion;
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
+        }),
+      );
+
+      renderChat();
+      submitIntent('add hello.txt');
+
+      await waitFor(() => expect(screen.getByText('write hello.txt')).toBeTruthy());
+      expect(screen.getByText('en cours…')).toBeTruthy();
+
+      releaseCompletion?.();
+    });
+
+    it('marks a task as succeeded once its task_complete event arrives', async () => {
+      setFetch(
+        mockFetchByUrl({
+          post: sseResponse([
+            { type: 'planning' },
+            { type: 'plan_ready', plan: FAKE_PLAN },
+            { type: 'task_start', role: 'coding', instruction: 'write hello.txt' },
+            { type: 'task_complete', role: 'coding', success: true, output: 'ok' },
+            {
+              type: 'done',
+              plan: FAKE_PLAN,
+              result: { plan: FAKE_PLAN, results: [{ role: 'coding', success: true, output: 'ok' }], success: true },
+              turnId: 'turn-x',
+            },
+          ]),
+        }),
+      );
+
+      renderChat();
+      submitIntent('add hello.txt');
+
+      await waitFor(() => expect(screen.getByText('Succès')).toBeTruthy());
+    });
+
+    it('accumulates multiple tasks in arrival order', async () => {
+      let releaseCompletion: (() => void) | undefined;
+      const completion = new Promise<void>((resolve) => {
+        releaseCompletion = resolve;
+      });
+
+      setFetch(
+        mockFetchByUrl({
+          post: new Response(
+            new ReadableStream({
+              async start(controller) {
+                const encoder = new TextEncoder();
+                const send = (event: unknown) =>
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                send({ type: 'planning' });
+                send({ type: 'plan_ready', plan: FAKE_PLAN });
+                send({ type: 'task_start', role: 'coding', instruction: 'write hello.txt' });
+                send({ type: 'task_complete', role: 'coding', success: true, output: 'ok' });
+                send({ type: 'task_start', role: 'testing', instruction: 'run tests' });
+                await completion;
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
+        }),
+      );
+
+      renderChat();
+      submitIntent('add hello.txt');
+
+      await waitFor(() => expect(screen.getByText('run tests')).toBeTruthy());
+      expect(screen.getByText('write hello.txt')).toBeTruthy();
+
+      releaseCompletion?.();
+    });
   });
 
   describe('history', () => {

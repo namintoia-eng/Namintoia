@@ -1,5 +1,8 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import type { MessageEvent } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { lastValueFrom, type Observable } from 'rxjs';
+import { toArray } from 'rxjs/operators';
 import type {
   AgentOrchestrator,
   ConversationTurn,
@@ -162,21 +165,55 @@ async function buildController(
   return moduleRef.get(PlanController);
 }
 
+/** Collects every SSE event a streaming createAndRun() Observable emits, in order. */
+async function collectEvents(observable: Observable<MessageEvent>): Promise<{ type: string }[]> {
+  const events = await lastValueFrom(observable.pipe(toArray()));
+  return events.map((e) => e.data as { type: string });
+}
+
 describe('PlanController', () => {
-  it('turns an intent into a Plan and runs it, returning both plus a turn id', async () => {
+  it('streams planning/plan_ready/done events, with the Plan and turn id in done', async () => {
     const planFromIntent = async (intent: string): Promise<Plan> => ({ ...FAKE_PLAN, intent });
     const run = async (): Promise<OrchestrationResult> => FAKE_RESULT;
 
     const controller = await buildController({ planFromIntent }, { run });
 
-    const response = await controller.createAndRun(USER_A, {
+    const observable = await controller.createAndRun(USER_A, {
       intent: 'build a login form',
       projectId: PROJECT_A.id,
     });
+    const events = await collectEvents(observable);
 
-    expect(response.plan.intent).toBe('build a login form');
-    expect(response.result).toEqual(FAKE_RESULT);
-    expect(response.turnId).toBeTruthy();
+    expect(events.map((e) => e.type)).toEqual(['planning', 'plan_ready', 'done']);
+    const done = events.at(-1) as { type: 'done'; plan: Plan; result: OrchestrationResult; turnId: string };
+    expect(done.plan.intent).toBe('build a login form');
+    expect(done.result).toEqual(FAKE_RESULT);
+    expect(done.turnId).toBeTruthy();
+  });
+
+  it('passes through task_start/task_complete events from the orchestrator', async () => {
+    const controller = await buildController(
+      { planFromIntent: async (intent) => ({ ...FAKE_PLAN, intent }) },
+      {
+        run: async (_plan, _projectId, onTaskEvent) => {
+          onTaskEvent?.({ type: 'task_start', role: 'coding', instruction: 'do it' });
+          onTaskEvent?.({ type: 'task_complete', role: 'coding', success: true, output: 'ok' });
+          return FAKE_RESULT;
+        },
+      },
+    );
+
+    const events = await collectEvents(
+      await controller.createAndRun(USER_A, { intent: 'x', projectId: PROJECT_A.id }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      'planning',
+      'plan_ready',
+      'task_start',
+      'task_complete',
+      'done',
+    ]);
   });
 
   it('saves the turn under the given projectId, scoped to the user', async () => {
@@ -187,7 +224,11 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun(USER_A, { intent: 'build a login form', projectId: PROJECT_A.id });
+    const observable = await controller.createAndRun(USER_A, {
+      intent: 'build a login form',
+      projectId: PROJECT_A.id,
+    });
+    await collectEvents(observable);
 
     expect(memory.saved[0]?.projectId).toBe(`user-a:${PROJECT_A.id}`);
   });
@@ -200,8 +241,12 @@ describe('PlanController', () => {
       memory,
     );
 
-    await controller.createAndRun(USER_A, { intent: 'first', projectId: PROJECT_A.id });
-    await controller.createAndRun(USER_A, { intent: 'second', projectId: PROJECT_A.id });
+    await collectEvents(
+      await controller.createAndRun(USER_A, { intent: 'first', projectId: PROJECT_A.id }),
+    );
+    await collectEvents(
+      await controller.createAndRun(USER_A, { intent: 'second', projectId: PROJECT_A.id }),
+    );
 
     const history = await controller.history(USER_A, PROJECT_A.id);
 

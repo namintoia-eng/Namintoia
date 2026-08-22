@@ -2,14 +2,32 @@
 
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
-import type { ConversationTurn, OrchestrationResult, Plan } from '@namintoia/naminto-core';
+import type { AgentRole, ConversationTurn, OrchestrationResult, Plan } from '@namintoia/naminto-core';
 import PlanResult from './PlanResult';
+
+interface TaskProgress {
+  role: AgentRole;
+  instruction: string;
+  status: 'running' | 'success' | 'failed';
+  output?: string;
+}
 
 type ViewState =
   | { status: 'idle' }
-  | { status: 'loading' }
+  | { status: 'streaming'; plan?: Plan; tasks: TaskProgress[] }
   | { status: 'error'; message: string }
   | { status: 'success'; plan: Plan; result: OrchestrationResult };
+
+/** Mirrors apps/api/src/plan/plan.controller.ts's PlanStreamEvent (DECISIONS.md D-21) — no
+ * shared DTO package between apps/api and apps/web today, same convention already used for
+ * every other /plan response shape in this file. */
+type PlanStreamEvent =
+  | { type: 'planning' }
+  | { type: 'plan_ready'; plan: Plan }
+  | { type: 'task_start'; role: AgentRole; instruction: string }
+  | { type: 'task_complete'; role: AgentRole; success: boolean; output: string }
+  | { type: 'done'; plan: Plan; result: OrchestrationResult; turnId: string }
+  | { type: 'error'; message: string };
 
 type HistoryState =
   | { status: 'loading' }
@@ -141,13 +159,63 @@ export default function Chat({
     }
   }
 
+  function handleStreamEvent(event: PlanStreamEvent): void {
+    switch (event.type) {
+      case 'planning':
+        setState({ status: 'streaming', tasks: [] });
+        return;
+      case 'plan_ready':
+        setState((prev) => (prev.status === 'streaming' ? { ...prev, plan: event.plan } : prev));
+        return;
+      case 'task_start':
+        setState((prev) =>
+          prev.status === 'streaming'
+            ? {
+                ...prev,
+                tasks: [
+                  ...prev.tasks,
+                  { role: event.role, instruction: event.instruction, status: 'running' },
+                ],
+              }
+            : prev,
+        );
+        return;
+      case 'task_complete':
+        setState((prev) => {
+          if (prev.status !== 'streaming' || prev.tasks.length === 0) {
+            return prev;
+          }
+          const tasks = [...prev.tasks];
+          const lastIndex = tasks.length - 1;
+          const last = tasks[lastIndex];
+          if (!last) {
+            return prev;
+          }
+          tasks[lastIndex] = {
+            ...last,
+            status: event.success ? 'success' : 'failed',
+            output: event.output,
+          };
+          return { ...prev, tasks };
+        });
+        return;
+      case 'done':
+        setState({ status: 'success', plan: event.plan, result: event.result });
+        loadHistory().catch(() => undefined);
+        loadFiles().catch(() => undefined);
+        return;
+      case 'error':
+        setState({ status: 'error', message: event.message });
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (intent.trim().length === 0) {
       return;
     }
 
-    setState({ status: 'loading' });
+    setState({ status: 'streaming', tasks: [] });
 
     try {
       const response = await fetch(`${API_URL}/plan`, {
@@ -166,10 +234,33 @@ export default function Chat({
         throw new Error(body?.message ?? `La requête a échoué (statut ${response.status}).`);
       }
 
-      const data = (await response.json()) as { plan: Plan; result: OrchestrationResult };
-      setState({ status: 'success', plan: data.plan, result: data.result });
-      loadHistory().catch(() => undefined);
-      loadFiles().catch(() => undefined);
+      if (!response.body) {
+        throw new Error('Streaming non supporté par ce navigateur.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+
+        let separatorIndex: number;
+        while ((separatorIndex = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, separatorIndex);
+          buffer = buffer.slice(separatorIndex + 2);
+
+          const dataLine = rawEvent.split('\n').find((line) => line.startsWith('data: '));
+          if (!dataLine) {
+            continue;
+          }
+          handleStreamEvent(JSON.parse(dataLine.slice(6)) as PlanStreamEvent);
+        }
+      }
     } catch (error) {
       setState({
         status: 'error',
@@ -177,6 +268,8 @@ export default function Chat({
       });
     }
   }
+
+  const streaming = state.status === 'streaming';
 
   return (
     <div className="min-h-screen bg-zinc-950">
@@ -214,10 +307,10 @@ export default function Chat({
           />
           <button
             type="submit"
-            disabled={state.status === 'loading' || intent.trim().length === 0}
+            disabled={streaming || intent.trim().length === 0}
             className="self-start rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {state.status === 'loading' ? 'Naminto réfléchit…' : 'Envoyer'}
+            {streaming ? 'Naminto réfléchit…' : 'Envoyer'}
           </button>
         </form>
 
@@ -232,6 +325,32 @@ export default function Chat({
           >
             <strong className="font-medium">Erreur :</strong> {state.message}
           </div>
+        )}
+
+        {state.status === 'streaming' && (
+          <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/60 p-6">
+            {!state.plan && <p className="text-sm text-zinc-400">Planification en cours…</p>}
+            {state.plan && (
+              <p className="mb-3 text-sm text-zinc-200">
+                <span className="text-zinc-400">Objectif :</span> {state.plan.spec.objective}
+              </p>
+            )}
+            {state.tasks.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {state.tasks.map((task, index) => (
+                  <li key={index} className="flex items-center gap-2 text-sm text-zinc-300">
+                    <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-xs uppercase tracking-wide text-zinc-400">
+                      {task.role}
+                    </span>
+                    <span className="flex-1">{task.instruction}</span>
+                    {task.status === 'running' && <span className="shrink-0 text-zinc-500">en cours…</span>}
+                    {task.status === 'success' && <span className="shrink-0 text-emerald-400">✓</span>}
+                    {task.status === 'failed' && <span className="shrink-0 text-red-400">✗</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         )}
 
         {state.status === 'success' && (

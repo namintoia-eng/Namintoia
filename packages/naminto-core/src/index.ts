@@ -7,6 +7,7 @@ export type {
   AgentRunContext,
   AgentTaskResult,
   OrchestrationResult,
+  TaskProgressEvent,
 } from './agent.js';
 
 export type { AgentRole, AgentTask, FeatureSpec, Plan, ReasoningEngine } from './reasoning.js';

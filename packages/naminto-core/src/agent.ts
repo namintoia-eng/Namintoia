@@ -29,10 +29,27 @@ export interface OrchestrationResult {
 }
 
 /**
+ * Live progress during a run (DECISIONS.md D-21) — emitted around every
+ * individual agent.run() call, including debug-agent retries, which is why
+ * there's no index/total here: the debug retry loop (up to 3 attempts,
+ * debug-agent.md) makes the total step count unknowable upfront. Consumers
+ * append each task_start/task_complete pair in arrival order — the
+ * orchestrator is strictly sequential (never concurrent), so "the last
+ * entry is the one completing" always holds.
+ */
+export type TaskProgressEvent =
+  | { type: 'task_start'; role: AgentRole; instruction: string }
+  | { type: 'task_complete'; role: AgentRole; success: boolean; output: string };
+
+/**
  * Distributes a Plan's tasks across registered agents and sequences their
  * execution — sequential only for the MVP, not parallel (DECISIONS.md D-2).
  * projectId scopes the shared SandboxSession created for the run.
  */
 export interface AgentOrchestrator {
-  run(plan: Plan, projectId: string): Promise<OrchestrationResult>;
+  run(
+    plan: Plan,
+    projectId: string,
+    onTaskEvent?: (event: TaskProgressEvent) => void,
+  ): Promise<OrchestrationResult>;
 }
